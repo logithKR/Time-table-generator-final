@@ -19,6 +19,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@tailwindcss/postcss": "^4.1.18",
     "@vitejs/plugin-react": "^4.7.0",
+    "date-fns": "^4.4.0",
     "html-to-image": "^1.11.13",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.0",

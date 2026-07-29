@@ -16,6 +16,8 @@ def log_activity(
     method: str,  # HTTP method: GET, POST, PUT, DELETE, PATCH, etc.
     status_code: int,  # HTTP response status code
     user_id: Optional[str] = None,
+    department_code: Optional[str] = None,
+    semester: Optional[int] = None,
 ) -> bool:
     """
     Log a user activity event to the centralized logging system.
@@ -38,6 +40,8 @@ def log_activity(
                 action=action,
                 method=method.upper(),
                 status_code=status_code,
+                department_code=department_code,
+                semester=semester,
                 timestamp_ist=get_ist_time(),
                 timestamp_gmt=get_gmt_time(),
             )

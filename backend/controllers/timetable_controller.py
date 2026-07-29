@@ -9,7 +9,13 @@ def get_timetable_service(db: Session = Depends(get_db)):
     return TimetableService(db)
 
 @router.post("/generate")
-async def generate_timetable(req: GenerateRequest, service: TimetableService = Depends(get_timetable_service)):
+async def generate_timetable(req: GenerateRequest, service: TimetableService = Depends(get_timetable_service), db: Session = Depends(get_db)):
+    from models import TimetableStatus
+    from fastapi import HTTPException, status
+    status_record = db.query(TimetableStatus).filter_by(department_code=req.department_code, semester=req.semester).first()
+    if status_record and status_record.is_finalized:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="This timetable is finalized and cannot be modified.")
+        
     import asyncio
     return await asyncio.to_thread(service.generate_and_save, req)
 

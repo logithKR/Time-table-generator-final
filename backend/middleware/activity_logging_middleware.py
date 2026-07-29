@@ -77,16 +77,50 @@ class ActivityLoggingMiddleware(BaseHTTPMiddleware):
             "DELETE": "Delete"
         }
         mapped_action = method_mapping.get(method, method)
+        
+        # Extract department_code and semester from query params or body
+        department_code = request.query_params.get("department_code")
+        semester = None
+        sem_str = request.query_params.get("semester")
+        if sem_str and sem_str.isdigit():
+            semester = int(sem_str)
+
+        if method in ["POST", "PUT", "PATCH"]:
+            try:
+                body_bytes = await request.body()
+                if body_bytes:
+                    import json
+                    body_json = json.loads(body_bytes)
+                    if not department_code and "department_code" in body_json:
+                        department_code = body_json.get("department_code")
+                    if not semester and "semester" in body_json:
+                        sem_val = body_json.get("semester")
+                        if str(sem_val).isdigit():
+                            semester = int(sem_val)
+                # Restore the request body stream for the actual route handler
+                async def receive():
+                    return {"type": "http.request", "body": body_bytes}
+                request._receive = receive
+            except Exception:
+                pass
 
         # Proceed with the request
         response = await call_next(request)
         
+        # Override action label for specific timetable edits to be more semantic
+        if path == "/api/timetable/save":
+            mapped_action = "Save"
+        elif path == "/api/generate":
+            mapped_action = "Generate"
+            
         # Log the activity asynchronously (don't block response)
         log_activity(
             email=user_email,
             action=path,
             method=mapped_action,
             status_code=response.status_code,
+            department_code=department_code,
+            semester=semester
         )
         
         return response

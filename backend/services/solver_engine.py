@@ -168,20 +168,20 @@ def generate_schedule(db: Session, department_code: str, semester: int, mentor_d
     cv_venues = db.query(models.VenueMaster).filter(models.VenueMaster.venue_id.in_(cv_venue_ids)).all()
     cv_vdict = {v.venue_id: v for v in cv_venues}
     
-    cv_lookup = {}  # {course_code: {'theory': venue_name, 'lab': venue_name}}
+    cv_lookup = {}  # {course_code: {'theory': [venue_names], 'lab': [venue_names]}}
     for cv in course_venues:
         v = cv_vdict.get(cv.venue_id)
         if v:
             vtype = (cv.venue_type or 'BOTH').upper()
             if cv.course_code not in cv_lookup:
-                cv_lookup[cv.course_code] = {}
+                cv_lookup[cv.course_code] = {'theory': [], 'lab': []}
             if vtype == 'BOTH':
-                cv_lookup[cv.course_code]['theory'] = v.venue_name
-                cv_lookup[cv.course_code]['lab'] = v.venue_name
+                cv_lookup[cv.course_code]['theory'].append(v.venue_name)
+                cv_lookup[cv.course_code]['lab'].append(v.venue_name)
             elif vtype == 'THEORY':
-                cv_lookup[cv.course_code]['theory'] = v.venue_name
+                cv_lookup[cv.course_code]['theory'].append(v.venue_name)
             elif vtype == 'LAB':
-                cv_lookup[cv.course_code]['lab'] = v.venue_name
+                cv_lookup[cv.course_code]['lab'].append(v.venue_name)
 
     # Override cv_lookup for common courses with their GLOBAL venue
     # This ensures all departments share the same venue for common courses
@@ -193,11 +193,11 @@ def generate_schedule(db: Session, department_code: str, semester: int, mentor_d
     for cc in common_entries:
         vtype = (cc.venue_type or 'BOTH').upper()
         if cc.course_code not in cv_lookup:
-            cv_lookup[cc.course_code] = {}
+            cv_lookup[cc.course_code] = {'theory': [], 'lab': []}
         if vtype in ('BOTH', 'THEORY'):
-            cv_lookup[cc.course_code]['theory'] = cc.venue_name
+            cv_lookup[cc.course_code]['theory'] = [cc.venue_name]
         if vtype in ('BOTH', 'LAB'):
-            cv_lookup[cc.course_code]['lab'] = cc.venue_name
+            cv_lookup[cc.course_code]['lab'] = [cc.venue_name]
 
     # Pre-fetch department default venues
     dept_venue_maps = db.query(models.DepartmentVenueMap).filter_by(department_code=department_code, semester=semester).all()
@@ -484,8 +484,9 @@ def generate_schedule(db: Session, department_code: str, semester: int, mentor_d
             
             # Check venue availability for this lab course
             course_cv = cv_lookup.get(c.course_code, {})
-            if 'lab' in course_cv:
-                available_lab_venues = 1  # course-specific lab mapping = exactly 1 venue
+            course_lab_pool = course_cv.get('lab', [])
+            if course_lab_pool:
+                available_lab_venues = len(course_lab_pool)
             else:
                 available_lab_venues = len(default_labs)
             
@@ -581,7 +582,8 @@ def generate_schedule(db: Session, department_code: str, semester: int, mentor_d
                 ))
                 
             course_cv = cv_lookup.get(c.course_code, {})
-            available_labs = 1 if 'lab' in course_cv else len(default_labs)
+            course_lab_pool = course_cv.get('lab', [])
+            available_labs = len(course_lab_pool) if course_lab_pool else len(default_labs)
             if c_venue_aware_rot and needed > 0 and available_labs < needed:
                 cname = course_names.get(c.course_code, c.course_code)
                 generation_errors.append(make_error(
@@ -1002,9 +1004,11 @@ def generate_schedule(db: Session, department_code: str, semester: int, mentor_d
             return None
         course_cv = cv_lookup.get(course_code, {})
         session_key = 'lab' if is_lab else 'theory'
-        if session_key in course_cv:
-            return course_cv[session_key]
-        pool = default_labs if is_lab else default_classrooms
+        course_specific_pool = course_cv.get(session_key, [])
+        if course_specific_pool:
+            pool = course_specific_pool
+        else:
+            pool = default_labs if is_lab else default_classrooms
         if not pool:
             cname = course_names.get(course_code, course_code)
             add_warning("VENUE", course_code, cname, period, sec_num, "No venues were configured.")

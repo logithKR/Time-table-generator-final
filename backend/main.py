@@ -12,6 +12,8 @@ from utils.log_database import log_engine, LoggingBase
 from routes.legacy_routes import router as legacy_router
 from controllers.auth_controller import router as auth_router
 from controllers.admin_controller import router as admin_router
+from controllers.admin_timetable_controller import router as admin_timetable_router
+from controllers.logging_controller import router as logging_router
 import uvicorn
 
 
@@ -50,6 +52,8 @@ app.include_router(auth_router, prefix="/api")
 
 # 5. Mount Admin routes at /api/admin  (frontend calls /api/admin/login, /api/admin/me, /api/admin/logs)
 app.include_router(admin_router, prefix="/api/admin", tags=["Admin"])
+app.include_router(admin_timetable_router, prefix="/api/admin", tags=["Admin"])
+app.include_router(logging_router, prefix="/api/admin", tags=["Admin Logs"])
 
 # 6. Mount ALL legacy data routes at /api  (frontend calls /api/departments, /api/generate etc.)
 app.include_router(legacy_router, prefix="/api")

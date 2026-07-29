@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { DndContext, useDroppable, useDraggable, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors, pointerWithin } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import * as api from '../utils/api';
-import { Search, Save, Trash2, Download, Undo2, Coffee, X, BookOpen, FlaskConical, Users2, LayoutTemplate, Palette, ArrowLeftRight, Plus, ChevronDown, Pencil, Type, AlertTriangle, Eye, Merge } from 'lucide-react';
+import { Search, Save, Trash2, Download, Undo2, Coffee, X, BookOpen, FlaskConical, Users2, LayoutTemplate, Palette, ArrowLeftRight, Plus, ChevronDown, Pencil, Type, AlertTriangle, Eye, Merge, AlertCircle, CheckCircle } from 'lucide-react';
 import LearningModeSelector from './LearningModeSelector';
 
 // ─── Simplified Color Palette (Preserved) ───
@@ -749,6 +749,8 @@ export default function TimetableEditor({ department, semester, initialData, mas
     const [entries, setEntries] = useState(initialData || []);
     const [localLearningModes, setLocalLearningModes] = useState(initialLearningModes || [1, 2]);
     const [isSaving, setIsSaving] = useState(false);
+    const [saveError, setSaveError] = useState(null);
+    const [saveSuccess, setSaveSuccess] = useState(false);
     const [history, setHistory] = useState([]);
     const [historyIndex, setHistoryIndex] = useState(0);
     const [redoStack, setRedoStack] = useState([]);
@@ -1182,12 +1184,24 @@ export default function TimetableEditor({ department, semester, initialData, mas
 
     const handleSave = async () => {
         setIsSaving(true);
+        setSaveError(null);
+        setSaveSuccess(false);
         try {
             await onSave(entries, localLearningModes);
             setHistory([{ entries: [...entries], action: 'Initial Save' }]);
             setHistoryIndex(0);
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 3000);
         } catch (error) {
-            console.error("Save error:", error);
+            let msg = "An unexpected error occurred while saving.";
+            if (error.response?.data?.detail) {
+                msg = typeof error.response.data.detail === 'string' 
+                    ? error.response.data.detail 
+                    : "Validation failed. Please check the data.";
+            } else if (error.message) {
+                msg = error.message;
+            }
+            setSaveError(msg);
         } finally {
             setIsSaving(false);
         }
@@ -1582,6 +1596,26 @@ export default function TimetableEditor({ department, semester, initialData, mas
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} collisionDetection={pointerWithin}>
             <div className="flex flex-col h-full bg-white font-sans text-gray-800" style={{ minHeight: '80vh' }}>
 
+                {/* --- NOTIFICATIONS --- */}
+                {saveError && (
+                    <div className="bg-red-50 border-b border-red-200 px-8 py-3 flex items-center justify-between shadow-sm">
+                        <div className="flex items-center gap-2 text-red-700">
+                            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                            <span className="font-medium text-sm">{saveError}</span>
+                        </div>
+                        <button onClick={() => setSaveError(null)} className="text-red-400 hover:text-red-600 transition-colors">
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                )}
+                {saveSuccess && (
+                    <div className="bg-emerald-50 border-b border-emerald-200 px-8 py-3 flex items-center shadow-sm">
+                        <div className="flex items-center gap-2 text-emerald-700">
+                            <CheckCircle className="w-5 h-5 flex-shrink-0" />
+                            <span className="font-medium text-sm">Timetable saved successfully!</span>
+                        </div>
+                    </div>
+                )}
                 {/* ─── TOOLBAR ─── */}
                 <div className="flex items-center justify-between px-8 py-4 bg-white border-b border-gray-100 shadow-sm flex-shrink-0 z-20">
                     <div className="flex items-center gap-5">

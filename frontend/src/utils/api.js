@@ -337,6 +337,23 @@ export const fetchAdminLogs = (type = 'auth', page = 1, limit = 50, date = null)
     return adminApi.get('/logs', { params });
 };
 
+export const fetchTimetableAuditLogs = (dept, sem, page=1, limit=50) => 
+    adminApi.get(`/logs/activity?department_code=${dept}&semester=${sem}&page=${page}&limit=${limit}&mutating_only=true`);
+
+export const fetchTimetableSummary = (department_code, semester) => {
+    return adminApi.get('/logs/timetable-summary', {
+        params: { department_code, semester }
+    });
+};
+
+// --- Admin Timetable Management ---
+export const getAdminTimetables = () => adminApi.get('/timetables/');
+export const finalizeTimetable = (dept, sem) => adminApi.post(`/timetables/${dept}/${sem}/finalize`);
+export const unfinalizeTimetable = (dept, sem) => adminApi.post(`/timetables/${dept}/${sem}/unfinalize`);
+export const deleteAdminTimetable = (dept, sem) => adminApi.delete(`/timetables/${dept}/${sem}`);
+export const deleteAllAdminTimetables = () => adminApi.delete(`/timetables/all`);
+export const downloadAllTimetables = () => adminApi.get(`/timetables/download-all`, { responseType: 'blob' });
+
 export const getAdminToken = () => localStorage.getItem('adminToken');
 export const setAdminToken = (token) => localStorage.setItem('adminToken', token);
 export const clearAdminToken = () => localStorage.removeItem('adminToken');

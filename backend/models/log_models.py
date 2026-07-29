@@ -65,6 +65,8 @@ class ActivityLog(LoggingBase):
     action = Column(String(255), nullable=False)  # API endpoint called (e.g., "/api/departments")
     method = Column(String(20), nullable=False)  # Mapped action type: Fetch, Generate, Edit, etc.
     status_code = Column(Integer, nullable=False)  # HTTP response code (200, 404, 500, etc.)
+    department_code = Column(String(255), nullable=True, index=True)  # Associated department
+    semester = Column(Integer, nullable=True, index=True)  # Associated semester
     timestamp_ist = Column(String(100), nullable=False, default=get_ist_time)  # e.g., "2026-04-20 11:30 AM"
     timestamp_gmt = Column(String(100), nullable=False, default=get_gmt_time)  # e.g., "2026-04-20 06:00 AM"
     
@@ -73,4 +75,5 @@ class ActivityLog(LoggingBase):
         Index('idx_activity_email', 'email'),
         Index('idx_activity_timestamp_ist', 'timestamp_ist'),
         Index('idx_activity_action', 'action'),
+        Index('idx_activity_dept_sem', 'department_code', 'semester'),
     )

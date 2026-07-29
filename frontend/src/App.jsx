@@ -346,7 +346,11 @@ function App() {
                     warnings: err.response.data.detail.warnings || []
                 });
             } else {
-                alert('Failed to generate: ' + (api.getErrorMessage(err)));
+                setGenerationErrors({
+                    message: "Generation Failed",
+                    errors: [{ message: api.getErrorMessage(err) || "An unexpected error occurred." }],
+                    warnings: []
+                });
             }
         } finally {
             setLoading(false);
@@ -1334,13 +1338,11 @@ function App() {
                                         entries: updatedEntries,
                                         learning_mode_ids: modeIdsStr
                                     });
-                                    alert('Timetable saved successfully!');
                                     // Re-fetch to ensure state is consistent
                                     const res = await api.getTimetableEntries(editorDept, editorSem, modeIdsStr);
                                     setTimetableEntries(res.data);
                                 } catch (error) {
-                                    console.error("Error saving timetable:", error);
-                                    alert('Failed to save timetable: ' + (error.response?.data?.detail || error.message));
+                                    throw error; // Let TimetableEditor catch and display it
                                 }
                             }}
                             onExportPDF={handleDownloadPDF}

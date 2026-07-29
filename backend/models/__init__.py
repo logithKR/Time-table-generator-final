@@ -255,13 +255,21 @@ Index('idx_user_constraint_enabled', UserConstraint.enabled)
 
 class TimetableData(Base):
     __tablename__ = "timetable"
-    
     id = Column(Integer, primary_key=True, autoincrement=True)
     department = Column(String, nullable=False)
     semester = Column(Integer, nullable=False)
-    learning_mode_ids = Column(String, default="1,2", nullable=False)
+    learning_mode_ids = Column(String, default="1,2", nullable=False) # E.g., "1,2" for merged state
     data = Column(String, nullable=False) # Store generated JSON string
     created_at = Column(String, nullable=False)
+
+
+class TimetableStatus(Base):
+    __tablename__ = "timetable_status"
+    department_code = Column(String, ForeignKey('department_master.department_code'), primary_key=True)
+    semester = Column(Integer, primary_key=True)
+    is_finalized = Column(Boolean, default=False)
+    finalized_by = Column(String, nullable=True)
+    finalized_at = Column(String, nullable=True)
 
 class ActivityLog(Base):
     __tablename__ = "activity_logs"

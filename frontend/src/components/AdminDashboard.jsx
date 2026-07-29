@@ -1,11 +1,35 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-    Shield, LogOut, RefreshCw, FileText, Clock, AlertCircle,
-    CheckCircle, ChevronLeft, ChevronRight, Filter, Loader2, Activity
+    Shield, LogOut, RefreshCw, FileText, Clock, AlertCircle, Calendar, Trash2, Download, CheckCircle, Unlock, Search, X,
+    ChevronLeft, ChevronRight, Filter, Loader2, Activity
 } from 'lucide-react';
 import * as api from '../utils/api';
 
 function AdminDashboard({ onLogout }) {
+    // Timetables Tab State
+    const [timetables, setTimetables] = useState([]);
+    const [timetablesLoading, setTimetablesLoading] = useState(false);
+    const [timetablesError, setTimetablesError] = useState(null);
+    const [historyModalOpen, setHistoryModalOpen] = useState(false);
+    const [selectedHistoryTT, setSelectedHistoryTT] = useState(null);
+    const [historyLogs, setHistoryLogs] = useState([]);
+    const [historySummary, setHistorySummary] = useState(null);
+    const [historyLoading, setHistoryLoading] = useState(false);
+    const [historyError, setHistoryError] = useState(null);
+
+    const fetchTimetables = async () => {
+        setTimetablesLoading(true); setTimetablesError(null);
+        try {
+            const res = await api.getAdminTimetables();
+            setTimetables(res.data.data || []);
+        } catch (e) {
+            setTimetablesError(api.getErrorMessage(e) || 'Failed to fetch timetables');
+        } finally {
+            setTimetablesLoading(false);
+        }
+    };
+    
+
     // Sync state
     const [isSyncing, setIsSyncing] = useState(false);
     const [syncMessage, setSyncMessage] = useState(null);
@@ -28,6 +52,10 @@ function AdminDashboard({ onLogout }) {
 
     // Active tab
     const [activeTab, setActiveTab] = useState('sync');
+
+    useEffect(() => {
+        if (activeTab === 'timetables') fetchTimetables();
+    }, [activeTab]);
 
     // Fetch logs
     const fetchLogs = useCallback(async () => {
@@ -167,6 +195,12 @@ function AdminDashboard({ onLogout }) {
                 >
                     <FileText className="w-4 h-4" />
                     Audit Logs
+                </button>
+                <button
+                    className={`admin-tab ${activeTab === 'timetables' ? 'admin-tab-active' : ''}`}
+                    onClick={() => setActiveTab('timetables')}
+                >
+                    <Calendar className="w-4 h-4" /> Timetables
                 </button>
             </nav>
 
@@ -445,7 +479,258 @@ function AdminDashboard({ onLogout }) {
                         )}
                     </div>
                 )}
+
+                {/* ===== TIMETABLES TAB ===== */}
+                {activeTab === 'timetables' && (
+                    <div className="admin-tt-panel">
+                        <div className="admin-tt-header">
+                            <div className="admin-tt-header-info">
+                                <h2>Timetable Management</h2>
+                                <p>Manage generated timetables, view audit history, and finalize schedules.</p>
+                            </div>
+                            <div className="admin-tt-actions">
+                                <button onClick={fetchTimetables} className="admin-tt-btn" disabled={timetablesLoading}>
+                                    <RefreshCw className={`w-4 h-4 ${timetablesLoading ? 'animate-spin' : ''}`} />
+                                    Refresh
+                                </button>
+                                <button onClick={() => {
+                                    api.downloadAllTimetables().then(res => {
+                                        const url = window.URL.createObjectURL(new Blob([res.data]));
+                                        const link = document.createElement('a');
+                                        link.href = url; link.setAttribute('download', 'All_Timetables.zip');
+                                        document.body.appendChild(link); link.click(); link.parentNode.removeChild(link);
+                                    }).catch(e => setTimetablesError(api.getErrorMessage(e) || 'Download failed'));
+                                }} className="admin-tt-btn admin-tt-btn-primary">
+                                    <Download className="w-4 h-4" /> Download All
+                                </button>
+                                <button onClick={() => {
+                                    if (window.confirm('Delete all unlocked (draft) timetables? Finalized timetables will not be affected.')) {
+                                        api.deleteAllAdminTimetables().then(fetchTimetables).catch(e => setTimetablesError(api.getErrorMessage(e)));
+                                    }
+                                }} className="admin-tt-btn admin-tt-btn-danger">
+                                    <Trash2 className="w-4 h-4" /> Delete Unlocked
+                                </button>
+                            </div>
+                        </div>
+
+                        {timetablesError && (
+                            <div className="admin-alert admin-alert-error">
+                                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                <span>{timetablesError}</span>
+                            </div>
+                        )}
+
+                        <div className="admin-logs-table-wrap">
+                            {timetablesLoading ? (
+                                <div className="admin-logs-loading">
+                                    <Loader2 className="w-6 h-6 animate-spin" style={{ color: '#6366f1' }} />
+                                    <span>Loading timetables...</span>
+                                </div>
+                            ) : timetables.length === 0 ? (
+                                <div className="admin-logs-empty">
+                                    <Calendar className="w-10 h-10" style={{ color: '#d1d5db' }} />
+                                    <p>No timetables available in the system.</p>
+                                </div>
+                            ) : (
+                                <table className="admin-logs-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Department</th>
+                                            <th>Semester</th>
+                                            <th>Status</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {timetables.map(tt => (
+                                            <tr key={`${tt.department_code}-${tt.semester}`}>
+                                                <td style={{ fontWeight: 700 }}>{tt.department_code}</td>
+                                                <td>Semester {tt.semester}</td>
+                                                <td>
+                                                    {tt.is_finalized ? (
+                                                        <span className="admin-tt-status admin-tt-status-finalized">
+                                                            <CheckCircle className="w-3 h-3" /> Finalized
+                                                        </span>
+                                                    ) : (
+                                                        <span className="admin-tt-status admin-tt-status-draft">
+                                                            Draft
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td>
+                                                    <div className="admin-tt-icon-actions">
+                                                        {/* History */}
+                                                        <button
+                                                            title="View History"
+                                                            className="admin-tt-icon-btn admin-tt-icon-btn-history"
+                                                            onClick={async () => {
+                                                                setSelectedHistoryTT(tt);
+                                                                setHistoryModalOpen(true);
+                                                                setHistoryLoading(true);
+                                                                setHistoryError(null);
+                                                                setHistoryLogs([]);
+                                                                setHistorySummary(null);
+                                                                try {
+                                                                    const [logsRes, sumRes] = await Promise.all([
+                                                                        api.fetchTimetableAuditLogs(tt.department_code, tt.semester),
+                                                                        api.fetchTimetableSummary(tt.department_code, tt.semester)
+                                                                    ]);
+                                                                    setHistoryLogs(logsRes.data.data || []);
+                                                                    setHistorySummary(sumRes.data || null);
+                                                                } catch (e) {
+                                                                    setHistoryError(api.getErrorMessage(e) || 'Failed to load history');
+                                                                } finally {
+                                                                    setHistoryLoading(false);
+                                                                }
+                                                            }}
+                                                        >
+                                                            <Clock className="w-4 h-4" />
+                                                        </button>
+
+                                                        {/* Download Excel */}
+                                                        <button
+                                                            title="Download Excel"
+                                                            className="admin-tt-icon-btn admin-tt-icon-btn-download"
+                                                            onClick={() => {
+                                                                const url = `/api/timetables/${tt.department_code}/${tt.semester}/excel`;
+                                                                const link = document.createElement('a');
+                                                                link.href = url;
+                                                                link.setAttribute('download', '');
+                                                                document.body.appendChild(link);
+                                                                link.click();
+                                                                link.parentNode.removeChild(link);
+                                                            }}
+                                                        >
+                                                            <Download className="w-4 h-4" />
+                                                        </button>
+
+                                                        {/* Finalize / Unfinalize */}
+                                                        <button
+                                                            title={tt.is_finalized ? 'Unfinalize' : 'Finalize'}
+                                                            className="admin-tt-icon-btn admin-tt-icon-btn-finalize"
+                                                            onClick={() => {
+                                                                (tt.is_finalized ? api.unfinalizeTimetable : api.finalizeTimetable)(tt.department_code, tt.semester)
+                                                                    .then(fetchTimetables)
+                                                                    .catch(e => setTimetablesError(api.getErrorMessage(e)));
+                                                            }}
+                                                        >
+                                                            {tt.is_finalized ? <Unlock className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
+                                                        </button>
+
+                                                        {/* Delete */}
+                                                        <button
+                                                            title="Delete"
+                                                            className="admin-tt-icon-btn admin-tt-icon-btn-delete"
+                                                            disabled={tt.is_finalized}
+                                                            onClick={() => {
+                                                                if (window.confirm(`Delete timetable for ${tt.department_code} Sem ${tt.semester}?`)) {
+                                                                    api.deleteAdminTimetable(tt.department_code, tt.semester)
+                                                                        .then(fetchTimetables)
+                                                                        .catch(e => setTimetablesError(api.getErrorMessage(e)));
+                                                                }
+                                                            }}
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    </div>
+                )}
+
             </main>
+
+            {/* ===== HISTORY MODAL ===== */}
+            {historyModalOpen && (
+                <div className="admin-history-overlay">
+                    <div className="admin-history-card">
+                        {/* Header */}
+                        <div className="admin-history-header">
+                            <div>
+                                <h3 className="admin-history-title">
+                                    <Clock className="w-5 h-5" style={{ color: '#6366f1' }} />
+                                    Timetable History
+                                </h3>
+                                <p className="admin-history-subtitle">
+                                    {selectedHistoryTT?.department_code} — Semester {selectedHistoryTT?.semester}
+                                </p>
+                            </div>
+                            <button onClick={() => setHistoryModalOpen(false)} className="admin-history-close">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Summary Stats */}
+                        {historySummary && (
+                            <div className="admin-history-stats">
+                                <div className="admin-history-stat">
+                                    <span className="admin-history-stat-label">Total Generations</span>
+                                    <span className="admin-history-stat-value">{historySummary.total_generations}</span>
+                                </div>
+                                <div className="admin-history-stat">
+                                    <span className="admin-history-stat-label">Total Edits</span>
+                                    <span className="admin-history-stat-value">{historySummary.total_edits}</span>
+                                </div>
+                                <div className="admin-history-stat">
+                                    <span className="admin-history-stat-label">Last Modified By</span>
+                                    <span className="admin-history-stat-value-sm">{historySummary.last_edited_by || '—'}</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Error */}
+                        {historyError && (
+                            <div className="admin-alert admin-alert-error" style={{ margin: '1rem 1.5rem 0', borderRadius: '0.5rem' }}>
+                                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                                <span>{historyError}</span>
+                            </div>
+                        )}
+
+                        {/* Body */}
+                        <div className="admin-history-body">
+                            {historyLoading ? (
+                                <div className="admin-history-empty">
+                                    <Loader2 className="w-6 h-6 animate-spin" style={{ color: '#6366f1' }} />
+                                    <span>Loading history...</span>
+                                </div>
+                            ) : historyLogs.length === 0 ? (
+                                <div className="admin-history-empty">
+                                    <Clock className="admin-history-empty-icon" />
+                                    <span>No audit records found for this timetable.</span>
+                                </div>
+                            ) : (
+                                <div className="admin-history-timeline">
+                                    {historyLogs.map((log, i) => {
+                                        const isGenerate = log.action?.toLowerCase().includes('generate');
+                                        return (
+                                            <div key={i} className="admin-history-timeline-item">
+                                                <div className={`admin-history-timeline-dot ${isGenerate ? 'admin-history-timeline-dot-generate' : ''}`} />
+                                                <div className="admin-history-timeline-content">
+                                                    <div className="admin-history-timeline-top">
+                                                        <span className={`admin-history-action-badge ${isGenerate ? 'admin-history-action-generate' : 'admin-history-action-modify'}`}>
+                                                            {isGenerate ? 'Generated' : 'Modified'}
+                                                        </span>
+                                                        <span className="admin-history-timestamp">
+                                                            {log.timestamp_ist || '—'}
+                                                        </span>
+                                                    </div>
+                                                    <span className="admin-history-email">{log.email}</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
         </div>
     );
 }
