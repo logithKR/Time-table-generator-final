@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const { logDb } = require('../database');
+const { db, logDb } = require('../database');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'dummy_secret_for_dev_32_chars_long!';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123';
@@ -44,11 +44,50 @@ router.get('/me', (req, res) => {
 
 router.get('/logs', (req, res) => {
     try {
-        const logs = logDb.prepare("SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT 100").all();
-        res.json(logs);
+        const { type = 'auth', page = 1, limit = 50, date } = req.query;
+        const pageNum = parseInt(page);
+        const limitNum = parseInt(limit);
+        const offset = (pageNum - 1) * limitNum;
+        
+        let tableName = type === 'auth' ? 'auth_logs' : 'activity_logs';
+        let query = "SELECT * FROM " + tableName;
+        let countQuery = "SELECT COUNT(*) as total FROM " + tableName;
+        let params = [];
+        
+        if (date) {
+            query += " WHERE timestamp_ist LIKE ?";
+            countQuery += " WHERE timestamp_ist LIKE ?";
+            params.push(date + '%');
+        }
+        
+        query += " ORDER BY id DESC LIMIT ? OFFSET ?";
+        params.push(limitNum, offset);
+        
+        const logs = logDb.prepare(query).all(params);
+        const totalResult = logDb.prepare(countQuery).get(date ? [date + '%'] : []);
+        const total = totalResult ? totalResult.total : 0;
+        
+        res.json({ 
+            data: logs, 
+            total, 
+            total_pages: Math.ceil(total / limitNum) 
+        });
     } catch (e) {
         res.status(500).json({ detail: e.message });
     }
+});
+
+router.get('/timetables/', (req, res) => {
+    try {
+        const statuses = db.prepare("SELECT department_code, semester, is_finalized, finalized_by, finalized_at FROM timetable_status").all();
+        res.json({ data: statuses });
+    } catch (e) {
+        res.status(500).json({ detail: e.message });
+    }
+});
+
+router.get('/sync/status', (req, res) => {
+    res.json({ status: 'complete', logs: [] });
 });
 
 module.exports = router;
