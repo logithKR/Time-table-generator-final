@@ -360,15 +360,60 @@ export const clearAdminToken = () => localStorage.removeItem('adminToken');
 
 // --- Error Helper ---
 export const getErrorMessage = (err) => {
+    // Extract the server message first
+    let serverMsg = null;
     if (err?.response?.data?.detail) {
         const detail = err.response.data.detail;
-        if (typeof detail === 'string') return detail;
-        if (typeof detail === 'object' && detail.message) return detail.message;
-        return JSON.stringify(detail);
+        if (typeof detail === 'string') serverMsg = detail;
+        else if (typeof detail === 'object' && detail.message) serverMsg = detail.message;
+        else serverMsg = JSON.stringify(detail);
+    } else if (err?.response?.data?.message) {
+        serverMsg = err.response.data.message;
     }
-    if (err?.response?.data?.message) return err.response.data.message;
+
+    // Build a user-friendly message based on HTTP status code
+    const status = err?.response?.status;
+    const url = err?.config?.url || '';
+    
+    // Extract context from the URL
+    const deptMatch = url.match(/department_code=([A-Z]+)|timetables\/([A-Z]+)/);
+    const semMatch = url.match(/semester=([0-9]+)|timetables\/[A-Z]+\/([0-9]+)/);
+    const dept = deptMatch ? (deptMatch[1] || deptMatch[2]) : '';
+    const sem = semMatch ? (semMatch[1] || semMatch[2]) : '';
+    const context = (dept && sem) ? ` for ${dept} Semester ${sem}` : (dept ? ` for ${dept}` : '');
+
+    if (status === 403) {
+        if (serverMsg) return serverMsg + (context && !serverMsg.includes(dept) ? context : '');
+        return `Action blocked${context}: This timetable is finalized and locked by an admin. Please unfinalize it from the Admin Dashboard before making changes.`;
+    }
+    if (status === 404) {
+        if (serverMsg) return serverMsg;
+        return `Resource not found${context}. The requested data does not exist on the server.`;
+    }
+    if (status === 400) {
+        if (serverMsg) return serverMsg;
+        return `Invalid request${context}. Please check your inputs and try again.`;
+    }
+    if (status === 401) {
+        if (url.includes('/auth/me')) return null; // Suppress - normal for unauthenticated users
+        return 'Your session has expired. Please log in again.';
+    }
+    if (status === 422) {
+        if (serverMsg) return serverMsg;
+        return `Validation failed${context}: The data did not pass constraint checks.`;
+    }
+    if (status === 409) {
+        if (serverMsg) return serverMsg;
+        return `Conflict detected${context}. Another user may have modified this data.`;
+    }
+    if (status >= 500) {
+        if (serverMsg) return `Server error: ${serverMsg}`;
+        return `Internal server error${context}. Please try again or check the backend logs.`;
+    }
+    if (serverMsg) return serverMsg;
+    if (err?.message === 'Network Error') return 'Cannot connect to the server. Is the backend running on port 8000?';
     if (err?.message) return err.message;
-    return 'An unknown error occurred';
+    return 'An unknown error occurred. Please try again.';
 };
 
 // --- CMS Sync ---

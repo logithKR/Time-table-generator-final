@@ -1199,11 +1199,21 @@ export default function TimetableEditor({ department, semester, initialData, mas
             setSaveSuccess(true);
             setTimeout(() => setSaveSuccess(false), 3000);
         } catch (error) {
+            const status = error.response?.status;
             let msg = "An unexpected error occurred while saving.";
-            if (error.response?.data?.detail) {
+            if (status === 403) {
+                msg = "Cannot save: This timetable is finalized and locked. Go to Admin Dashboard ? click Unlock to unfinalize it first.";
+            } else if (status === 400) {
+                msg = error.response?.data?.detail || "Invalid timetable data. Please check entries and try again.";
+                if (typeof msg !== 'string') msg = msg.message || JSON.stringify(msg);
+            } else if (status >= 500) {
+                msg = "Server error while saving: " + (error.response?.data?.detail || error.message || "Unknown server error");
+            } else if (error.message === 'Network Error') {
+                msg = "Cannot connect to the server. Is the backend running on port 8000?";
+            } else if (error.response?.data?.detail) {
                 msg = typeof error.response.data.detail === 'string' 
                     ? error.response.data.detail 
-                    : "Validation failed. Please check the data.";
+                    : (error.response.data.detail.message || "Validation failed. Please check the data.");
             } else if (error.message) {
                 msg = error.message;
             }
@@ -1235,7 +1245,7 @@ export default function TimetableEditor({ department, semester, initialData, mas
             setHistoryIndex(0);
         } catch (err) {
             console.error("Failed to fetch mode-specific timetable:", err);
-            alert("Failed to load timetable for selected modes.");
+            alert("Failed to load timetable: " + (err.response?.data?.detail || err.message || "Unknown error. Please try again."));
         }
     };
 
@@ -1295,7 +1305,7 @@ export default function TimetableEditor({ department, semester, initialData, mas
 
         // Validate types
         if (swapSource.entry.session_type !== entry.session_type) {
-            alert(`Cannot swap ${swapSource.entry.session_type} with ${entry.session_type}. Types must match.`);
+            alert(`Cannot swap ${swapSource.entry.session_type} (${swapSource.entry.course_name || swapSource.entry.course_code}) with ${entry.session_type} (${entry.course_name || entry.course_code}). Session types must match (e.g., Lab with Lab, Theory with Theory).`);
             setSwapSource(null);
             return;
         }

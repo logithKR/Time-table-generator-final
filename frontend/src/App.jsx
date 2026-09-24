@@ -142,6 +142,11 @@ function App() {
     const [showFaculty, setShowFaculty] = useState(true);
     const [showVenues, setShowVenues] = useState(true);
 
+    // Clear locked slots when department or semester selection changes
+    useEffect(() => {
+        setLockedSlots([]);
+    }, [selectedDept, selectedSem]);
+
     useEffect(() => { 
         if (isAuthenticated) {
             fetchMasterData(); 
@@ -340,14 +345,52 @@ function App() {
                 setRefreshTrigger(prev => prev + 1);
             }
         } catch (err) {
-            // Handle HTTP 422 (Hard Constraint Stop)
-            if (err.response?.status === 422 && err.response?.data?.detail?.errors) {
+            const status = err.response?.status;
+            const dept = selectedDept;
+            const sem = selectedSem;
+
+            // Handle HTTP 403 (Finalized timetable)
+            if (status === 403) {
                 setGenerationErrors({
-                    message: err.response.data.detail.message,
+                    message: "Timetable Locked",
+                    errors: [{ message: `The timetable for ${dept} Semester ${sem} is finalized and locked by an admin. Go to Admin Dashboard ? Timetable Management ? click the Unlock icon to unfinalize it, then try generating again.` }],
+                    warnings: []
+                });
+            }
+            // Handle HTTP 422 (Hard Constraint Stop)
+            else if (status === 422 && err.response?.data?.detail?.errors) {
+                setGenerationErrors({
+                    message: err.response.data.detail.message || "Constraint Violation",
                     errors: err.response.data.detail.errors,
                     warnings: err.response.data.detail.warnings || []
                 });
-            } else {
+            }
+            // Handle HTTP 400 (Bad Request - no courses, etc.)
+            else if (status === 400) {
+                setGenerationErrors({
+                    message: "Cannot Generate Timetable",
+                    errors: [{ message: api.getErrorMessage(err) || `Generation failed for ${dept} Semester ${sem}. Please verify that courses, faculty, and venues are properly configured.` }],
+                    warnings: []
+                });
+            }
+            // Handle HTTP 500 (Server error)
+            else if (status >= 500) {
+                setGenerationErrors({
+                    message: "Server Error",
+                    errors: [{ message: `The server encountered an error while generating the timetable for ${dept} Semester ${sem}. Error: ${api.getErrorMessage(err)}` }],
+                    warnings: []
+                });
+            }
+            // Handle Network Error
+            else if (err.message === 'Network Error') {
+                setGenerationErrors({
+                    message: "Connection Failed",
+                    errors: [{ message: "Cannot connect to the backend server. Please make sure the server is running (node server.js) on port 8000." }],
+                    warnings: []
+                });
+            }
+            // Fallback
+            else {
                 setGenerationErrors({
                     message: "Generation Failed",
                     errors: [{ message: api.getErrorMessage(err) || "An unexpected error occurred." }],
@@ -389,7 +432,7 @@ function App() {
             
         } catch (err) {
             setSyncingCms(false);
-            alert('Failed to start CMS sync: ' + (api.getErrorMessage(err)));
+            alert('Failed to start CMS sync: ' + (api.getErrorMessage(err) || 'Cannot connect to CMS. Check network and try again.'));
         }
     };
 
@@ -452,7 +495,7 @@ function App() {
             link.parentNode.removeChild(link);
         } catch (err) {
             console.error("Excel Export Error:", err);
-            alert("Failed to export Excel. Please check console.");
+            alert("Failed to export Excel for " + selectedDept + " Semester " + selectedSem + ": " + (api.getErrorMessage(err) || "Unknown error. Check if the backend is running."));
         }
     };
 
@@ -1348,7 +1391,7 @@ function App() {
             const res = await api.getSlots();
             setSlots(res.data);
         } catch (err) {
-            alert('Failed to delete slot: ' + (api.getErrorMessage(err)));
+            alert('Failed to delete slot: ' + (api.getErrorMessage(err) || 'Unknown error. The slot may be in use by existing timetables.'));
         }
     };
 
@@ -1360,7 +1403,7 @@ function App() {
             const res = await api.getSlots();
             setSlots(res.data);
         } catch (err) {
-            alert('Failed to update slot: ' + (api.getErrorMessage(err)));
+            alert('Failed to update slot: ' + (api.getErrorMessage(err) || 'Unknown error. Please check the slot data and try again.'));
         }
     };
 
@@ -1372,7 +1415,7 @@ function App() {
             const res = await api.getBreaks();
             setBreakConfigs(res.data);
         } catch (err) {
-            alert('Failed to update break: ' + (api.getErrorMessage(err)));
+            alert('Failed to update break: ' + (api.getErrorMessage(err) || 'Unknown error. Please check the break timing and try again.'));
         }
     };
 
@@ -1383,7 +1426,7 @@ function App() {
             const res = await api.getBreaks();
             setBreakConfigs(res.data);
         } catch (err) {
-            alert('Failed to delete break: ' + (api.getErrorMessage(err)));
+            alert('Failed to delete break: ' + (api.getErrorMessage(err) || 'Unknown error. The break may be in use.'));
         }
     };
 
@@ -1410,7 +1453,7 @@ function App() {
             const res = await api.getSlots();
             setSlots(res.data);
         } catch (err) {
-            alert('Failed to add slot: ' + (api.getErrorMessage(err)));
+            alert('Failed to add slot: ' + (api.getErrorMessage(err) || 'Unknown error. Please check for overlapping time ranges.'));
         }
     };
 
@@ -1432,7 +1475,7 @@ function App() {
             const res = await api.getBreaks();
             setBreakConfigs(res.data);
         } catch (err) {
-            alert('Failed to add break: ' + (api.getErrorMessage(err)));
+            alert('Failed to add break: ' + (api.getErrorMessage(err) || 'Unknown error. Please check for overlapping break times.'));
         }
     };
 
@@ -1453,7 +1496,7 @@ function App() {
             const res = await api.getSemesterConfigs();
             setSemesterConfigs(res.data);
         } catch(err) {
-            alert('Failed to update config: ' + err.message);
+            alert('Failed to update config: ' + (api.getErrorMessage(err) || err.message || 'Unknown error'));
         }
     };
 
@@ -2007,9 +2050,12 @@ function App() {
                                             </div>
                                         )}
                                         
-                                        <div className="mt-3 flex items-start gap-2 text-sm text-gray-600 bg-blue-50/50 p-3 rounded-lg border border-blue-100">
-                                            <Info className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
-                                            <p><strong>Suggestion:</strong> {err.suggestion}</p>
+                                        <div className="mt-3 flex items-start gap-2 text-sm text-gray-800 bg-blue-50/50 p-3 rounded-lg border border-blue-200">
+                                            <Info className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                                            <div className="flex flex-col gap-1">
+                                                {err.message && <p className="font-semibold text-gray-900">{err.message}</p>}
+                                                {err.suggestion ? <p><strong className="text-blue-800">Suggestion:</strong> {err.suggestion}</p> : null}
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

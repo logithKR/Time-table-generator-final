@@ -65,7 +65,7 @@ const DepartmentsManager = () => {
         }
     };
 
-    const handleDelete = async (code) => {
+    /* const handleDelete = async (code) => {
         if (!window.confirm(`Are you sure you want to delete ${code}? This can only be done if no faculty or courses are linked.`)) return;
         try {
             await deleteDepartment(code);
@@ -73,7 +73,7 @@ const DepartmentsManager = () => {
         } catch (err) {
             alert(api.getErrorMessage(err));
         }
-    };
+    }; */
 
 
 
@@ -129,9 +129,9 @@ const DepartmentsManager = () => {
                                 </div>
 
                                     <div className="flex items-center gap-2">
-                                        <button onClick={() => handleDelete(dept.department_code)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors sm:opacity-0 sm:group-hover:opacity-100" title="Delete Department">
+                                        {/* <button onClick={() => handleDelete(dept.department_code)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors sm:opacity-0 sm:group-hover:opacity-100" title="Delete Department">
                                             <Trash2 className="w-4 h-4" />
-                                        </button>
+                                        </button> */}
                                     </div>
                             </div>
 
@@ -175,9 +175,9 @@ const DepartmentsManager = () => {
                                                 </span>
                                                 <span className="text-xs text-slate-500 ml-1 font-medium">students</span>
                                             </div>
-                                            <button onClick={() => startEditCapacity(dept.department_code)} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-100" title="Edit Capacity">
+                                            {/* <button onClick={() => startEditCapacity(dept.department_code)} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 rounded-lg transition-colors border border-indigo-100" title="Edit Capacity">
                                                 <Pencil className="w-4 h-4" />
-                                            </button>
+                                            </button> */}
                                         </div>
                                     )}
                                 </div>

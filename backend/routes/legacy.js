@@ -1,13 +1,10 @@
 ﻿const express = require('express');
 
-function logActivity(action, dept, sem) {
+function logActivity(action, dept, sem, req = null) {
     try {
         if (!logDb) return;
         const now = new Date();
         const istOptions = { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false };
-        let istStr = now.toLocaleString('en-IN', istOptions); // "DD/MM/YYYY, HH:mm" -> Need "YYYY-MM-DD HH:mm AM/PM"
-        
-        // Quick format to YYYY-MM-DD HH:mm A
         const yy = now.getFullYear();
         const mm = String(now.getMonth() + 1).padStart(2, '0');
         const dd = String(now.getDate()).padStart(2, '0');
@@ -18,11 +15,28 @@ function logActivity(action, dept, sem) {
         hh = hh ? hh : 12;
         const hhStr = String(hh).padStart(2, '0');
         const timestamp_ist = `${yy}-${mm}-${dd} ${hhStr}:${m} ${ampm}`;
-        
         const timestamp_gmt = now.toUTCString();
         
-        logDb.prepare("INSERT INTO activity_logs (action, method, status_code, timestamp_ist, timestamp_gmt, department_code, semester) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-            action, 'POST', 200, timestamp_ist, timestamp_gmt, dept || null, sem || null
+        let email = null;
+        let method = 'POST';
+        if (req) {
+            method = req.method || 'POST';
+            // Try to extract email from tokens
+            try {
+                const jwt = require('jsonwebtoken');
+                const JWT_SECRET = process.env.JWT_SECRET || 'dummy_secret_for_dev_32_chars_long!';
+                if (req.cookies && req.cookies.admin_token) {
+                    const decoded = jwt.verify(req.cookies.admin_token, JWT_SECRET);
+                    if (decoded && decoded.email) email = decoded.email;
+                } else if (req.cookies && req.cookies.access_token) {
+                    const decoded = jwt.verify(req.cookies.access_token, JWT_SECRET);
+                    if (decoded && decoded.email) email = decoded.email;
+                }
+            } catch(e) {}
+        }
+        
+        logDb.prepare("INSERT INTO activity_logs (action, method, status_code, timestamp_ist, timestamp_gmt, department_code, semester, email, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+            action, method, 200, timestamp_ist, timestamp_gmt, dept || null, sem || null, email, email
         );
     } catch (e) { console.error("Logging error", e); }
 }
@@ -69,7 +83,7 @@ router.get('/course-faculty', (req, res) => { try { const { department_code } = 
 router.post('/course-faculty', (req, res) => { try { const { course_code, faculty_id, department_code } = req.body; db.prepare("INSERT INTO course_faculty_map (course_code, faculty_id, department_code) VALUES (?, ?, ?)").run(course_code, faculty_id, department_code); 
         try {
             db.prepare("INSERT OR IGNORE INTO timetable_status (department_code, semester, is_finalized) VALUES (?, ?, 0)").run(department_code, semester);
-            logActivity("Manually saved timetable for " + department_code + " Sem " + semester, department_code, semester);
+            logActivity("Manually saved timetable for " + department_code + " Sem " + semester, department_code, semester, req);
         } catch(e) {}
         res.json({ status: "success" });
  } catch (e) { handleDbError(e, res); } });
@@ -159,65 +173,33 @@ router.get('/api/semester-config', (req, res) => { try { res.json(db.prepare("SE
 router.post('/api/semester-config/:semester', (req, res) => { try { const { semester } = req.params; const { academic_year } = req.body; const existing = db.prepare("SELECT * FROM semester_config WHERE semester = ?").get(semester); if (existing) db.prepare("UPDATE semester_config SET academic_year = ? WHERE semester = ?").run(academic_year, semester); else db.prepare("INSERT INTO semester_config (semester, academic_year) VALUES (?, ?)").run(semester, academic_year); res.json(db.prepare("SELECT * FROM semester_config WHERE semester = ?").get(semester)); } catch (e) { handleDbError(e, res); } });
 
 // TIMETABLE GENERATION & FETCHING
-router.post('/generate', async (req, res) => { try { const { generate_schedule } = require('../services/solver_engine'); const { department_code, semester, mentor_day, mentor_period, learning_mode_ids: raw_learning_mode_ids, locked_slots } = req.body; const learning_mode_ids = (typeof raw_learning_mode_ids === "string") ? raw_learning_mode_ids.split(",").map(s => s.trim()) : (raw_learning_mode_ids || ["1","2"]); try { const status = db.prepare("SELECT * FROM timetable_status WHERE department_code = ? AND semester = ?").get(department_code, semester); if (status && status.is_finalized) return res.status(403).json({ detail: "This timetable is finalized. Please unfinalize first." }); } catch (e) {} let config = DEFAULT_CONFIG; try { const cr = db.prepare("SELECT * FROM scheduler_config WHERE id = 1").get(); if (cr && cr.config_json) config = mergeConfigs(DEFAULT_CONFIG, JSON.parse(cr.config_json)); } catch (e) {} let hard_mode = false; try { hard_mode = !!(config.validation && config.validation.hard_constraint_mode && config.validation.hard_constraint_mode.enabled); } catch (e) {} const result = await generate_schedule(db, department_code, semester, mentor_day, mentor_period, hard_mode, learning_mode_ids, locked_slots || []); if (typeof result === 'boolean') { if (result) return res.json({ status: "success", message: "Timetable generated successfully", warnings: [] }); const courses = db.prepare("SELECT * FROM course_master WHERE department_code = ? AND semester = ? AND is_open_elective = 0").all(department_code, semester); if (!courses.length) return res.status(400).json({ detail: `No courses found for ${department_code} Sem ${semester}.` }); const totalWs = courses.reduce((sum, c) => sum + (c.weekly_sessions || 0), 0); return res.status(400).json({ detail: `Cannot generate: ${totalWs} weekly sessions.` }); } if (!result || !result.success) { if (result && result.errors) return res.status(422).json({ detail: { message: "Resource verification failed.", errors: result.errors || [], warnings: result.warnings || [] } }); return res.status(400).json({ detail: "Solver failed." }); } 
+router.post('/generate', async (req, res) => { try { const { generate_schedule } = require('../services/solver_engine'); const { department_code, semester, mentor_day, mentor_period, learning_mode_ids: raw_learning_mode_ids, locked_slots } = req.body; const learning_mode_ids = (typeof raw_learning_mode_ids === "string") ? raw_learning_mode_ids.split(",").map(s => s.trim()) : (raw_learning_mode_ids || ["1","2"]); try { const status = db.prepare("SELECT * FROM timetable_status WHERE department_code = ? AND semester = ?").get(department_code, semester); if (status && status.is_finalized) return res.status(403).json({ detail: "This timetable is finalized and locked by an admin. Please go to Admin Dashboard ? Timetable Management ? click the Unlock icon to unfinalize it, then try again." }); } catch (e) {} let config = DEFAULT_CONFIG; try { const cr = db.prepare("SELECT * FROM scheduler_config WHERE id = 1").get(); if (cr && cr.config_json) config = mergeConfigs(DEFAULT_CONFIG, JSON.parse(cr.config_json)); } catch (e) {} let hard_mode = false; try { hard_mode = !!(config.validation && config.validation.hard_constraint_mode && config.validation.hard_constraint_mode.enabled); } catch (e) {} const result = await generate_schedule(db, department_code, semester, mentor_day, mentor_period, hard_mode, learning_mode_ids, locked_slots || []); if (typeof result === 'boolean') { if (result) return res.json({ status: "success", message: "Timetable generated successfully", warnings: [] }); const courses = db.prepare("SELECT * FROM course_master WHERE department_code = ? AND semester = ? AND is_open_elective = 0").all(department_code, semester); if (!courses.length) return res.status(400).json({ detail: `No courses found for ${department_code} Sem ${semester}.` }); const totalWs = courses.reduce((sum, c) => sum + (c.weekly_sessions || 0), 0); return res.status(400).json({ detail: `Cannot generate: ${totalWs} weekly sessions.` }); } if (!result || !result.success) { if (result && result.errors) return res.status(422).json({ detail: { message: "Resource verification failed.", errors: result.errors || [], warnings: result.warnings || [] } }); return res.status(400).json({ detail: "Solver failed." }); } 
     try {
         db.prepare("INSERT OR IGNORE INTO timetable_status (department_code, semester, is_finalized) VALUES (?, ?, 0)").run(department_code, semester);
-        logActivity("Generated timetable for " + department_code + " Sem " + semester, department_code, semester);
+        logActivity("Generated timetable for " + department_code + " Sem " + semester, department_code, semester, req);
     } catch(e) {}
     res.json({ status: "success", message: `Generated ${result.entries_saved || 0} entries.`, warnings: result.warnings || [], entries_saved: result.entries_saved || 0 }); } catch (e) { console.error("Generate error:", e); res.status(500).json({ detail: e.message }); } });
 
 router.get('/timetable', (req, res) => { try { const { department_code, semester, learning_mode_ids } = req.query; let q = "SELECT * FROM timetable_entries WHERE 1=1"; const p = []; if (department_code && department_code.trim()) { q += " AND department_code = ?"; p.push(department_code); } if (semester) { q += " AND semester = ?"; p.push(parseInt(semester)); } if (learning_mode_ids) { q += " AND learning_mode_ids = ?"; p.push(learning_mode_ids); } res.json(db.prepare(q).all(...p)); } catch (e) { handleDbError(e, res); } });
 router.get('/timetable/entries', (req, res) => { try { const { department_code, semester } = req.query; let q = "SELECT * FROM timetable_entries WHERE 1=1"; const p = []; if (department_code) { q += " AND department_code = ?"; p.push(department_code); } if (semester) { q += " AND semester = ?"; p.push(parseInt(semester)); } res.json(db.prepare(q).all(...p)); } catch (e) { handleDbError(e, res); } });
-router.post('/timetable/save', (req, res) => { try { const { department_code, semester, entries, learning_mode_ids } = req.body; try { const status = db.prepare("SELECT * FROM timetable_status WHERE department_code = ? AND semester = ?").get(department_code, semester); if (status && status.is_finalized) return res.status(403).json({ detail: "Timetable is finalized." }); } catch (e) {} const modeStr = learning_mode_ids || '1,2'; db.prepare("DELETE FROM timetable_entries WHERE department_code = ? AND semester = ? AND learning_mode_ids = ?").run(department_code, semester, modeStr); if (entries && entries.length) { const ins = db.prepare("INSERT INTO timetable_entries (department_code, semester, day_of_week, period_number, course_code, course_name, faculty_id, faculty_name, venue_name, section_number, learning_mode_ids, slot_id, session_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"); const txn = db.transaction((items) => { for (const e of items) ins.run(e.department_code || department_code, e.semester || semester, e.day_of_week, e.period_number, e.course_code, e.course_name || null, e.faculty_id || null, e.faculty_name || null, e.venue_name || null, e.section_number || null, modeStr, e.slot_id || 1, e.session_type || null); }); txn(entries); } res.json({ status: "success" }); } catch (e) { handleDbError(e, res); } });
+router.post('/timetable/save', (req, res) => { try { const { department_code, semester, entries, learning_mode_ids } = req.body; try { const status = db.prepare("SELECT * FROM timetable_status WHERE department_code = ? AND semester = ?").get(department_code, semester); if (status && status.is_finalized) return res.status(403).json({ detail: "Cannot save changes: This timetable is finalized and locked by an admin. Unfinalize it from the Admin Dashboard first." }); } catch (e) {} const modeStr = learning_mode_ids || '1,2'; db.prepare("DELETE FROM timetable_entries WHERE department_code = ? AND semester = ? AND learning_mode_ids = ?").run(department_code, semester, modeStr); if (entries && entries.length) { const ins = db.prepare("INSERT INTO timetable_entries (department_code, semester, day_of_week, period_number, course_code, course_name, faculty_id, faculty_name, venue_name, section_number, learning_mode_ids, slot_id, session_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"); const txn = db.transaction((items) => { for (const e of items) ins.run(e.department_code || department_code, e.semester || semester, e.day_of_week, e.period_number, e.course_code, e.course_name || null, e.faculty_id || null, e.faculty_name || null, e.venue_name || null, e.section_number || null, modeStr, e.slot_id || 1, e.session_type || null); }); txn(entries); } res.json({ status: "success" }); } catch (e) { handleDbError(e, res); } });
 router.get('/timetable/conflicts', (req, res) => { res.json([]); });
 
-router.get('/export/timetable/excel', (req, res) => { 
+router.get('/export/timetable/excel', async (req, res) => { 
     try {
         const { department_code, semester } = req.query;
         if (!department_code || !semester) {
             return res.status(400).json({ detail: "Missing department or semester" });
         }
         
-        // Fetch timetable entries
-        const { db } = require('../database');
-        const entries = db.prepare("SELECT * FROM timetable_entries WHERE department_code = ? AND semester = ? ORDER BY day_of_week, period_number").all(department_code, semester);
+        const { generateTimetableExcelBytes } = require('../utils/excel_export');
+        const buffer = await generateTimetableExcelBytes(db, department_code, semester);
         
-        if (!entries || entries.length === 0) {
-            return res.status(404).json({ detail: "No timetable found for given department and semester." });
-        }
-        
-        const xlsx = require('xlsx');
-        
-        // Format data into a grid or list. We'll do a simple list format first to guarantee it works.
-        const worksheetData = [
-            ["Department", "Semester", "Day", "Period", "Course Code", "Course Name", "Faculty Name", "Venue", "Type"]
-        ];
-        
-        for (const e of entries) {
-            worksheetData.push([
-                e.department_code,
-                e.semester,
-                e.day_of_week,
-                e.period_number,
-                e.course_code,
-                e.course_name || '',
-                e.faculty_name || '',
-                e.venue_name || '',
-                e.session_type || ''
-            ]);
-        }
-        
-        const ws = xlsx.utils.aoa_to_sheet(worksheetData);
-        const wb = xlsx.utils.book_new();
-        xlsx.utils.book_append_sheet(wb, ws, "Timetable");
-        
-        const buffer = xlsx.write(wb, { type: 'buffer', bookType: 'xlsx' });
-        
-        res.setHeader('Content-Disposition', `attachment; filename="timetable_${department_code}_sem${semester}.xlsx"`);
+        res.setHeader('Content-Disposition', 'attachment; filename="timetable_' + department_code + '_sem' + semester + '.xlsx"');
         res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
         res.send(buffer);
     } catch(e) {
-        console.error(e);
+        console.error("Excel export error:", e);
         res.status(500).json({ detail: "Excel export failed: " + e.message });
     }
 });

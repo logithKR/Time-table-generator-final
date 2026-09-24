@@ -48,7 +48,7 @@ function AdminDashboard({ onLogout }) {
 
     // Date filters
     const today = new Date().toISOString().split('T')[0];
-    const [filterDate, setFilterDate] = useState(today);
+    const [filterDate, setFilterDate] = useState('');
 
     // Active tab
     const [activeTab, setActiveTab] = useState('sync');
@@ -592,7 +592,7 @@ function AdminDashboard({ onLogout }) {
                                                             title="Download Excel"
                                                             className="admin-tt-icon-btn admin-tt-icon-btn-download"
                                                             onClick={() => {
-                                                                const url = `/api/timetables/${tt.department_code}/${tt.semester}/excel`;
+                                                                const url = `${import.meta.env.VITE_API_BASE_URL || "/api"}/export/timetable/excel?department_code=${tt.department_code}&semester=${tt.semester}`;
                                                                 const link = document.createElement('a');
                                                                 link.href = url;
                                                                 link.setAttribute('download', '');
