@@ -404,23 +404,29 @@ const ManualEntryModal = ({ isOpen, onClose, onSave, initialData, allSections, i
         setActiveTab(0); // Reset tab after deletion
     };
 
-    const addNewCourseGroup = (courseCode) => {
+        const addNewCourseGroup = (courseCode) => {
         const courseObj = allCourses.find(c => c.course_code === courseCode);
         if (!courseObj) return;
 
-        setSectionEdits(prev => [...prev, {
-            faculty_name: '', venue_name: '',
-            course_code: courseObj.course_code,
-            course_name: courseObj.course_name,
-            section_number: 1,
-            session_type: courseObj.is_lab ? 'LAB' : 'THEORY',
-            _original: null, _deleted: false, _isNew: true
-        }]);
+        setSectionEdits(prev => {
+            let nextEdits = prev;
+            // Auto-remove "LOCKED" placeholder if it is the only course in this slot
+            if (prev.length === 1 && prev[0].course_code === 'LOCKED' && !prev[0]._deleted) {
+                nextEdits = prev.map(s => ({ ...s, _deleted: true }));
+                setTimeout(() => setActiveTab(0), 10);
+            } else {
+                setTimeout(() => setActiveTab(courseGroups.length), 10);
+            }
+            return [...nextEdits, {
+                faculty_name: '', venue_name: '',
+                course_code: courseObj.course_code,
+                course_name: courseObj.course_name,
+                section_number: 1,
+                session_type: courseObj.is_lab ? 'LAB' : 'THEORY',
+                _original: null, _deleted: false, _isNew: true
+            }];
+        });
 
-        // Wait for next render cycle to set tab to newly added group
-        setTimeout(() => {
-            setActiveTab(courseGroups.length);
-        }, 10);
         setIsAddingCourse(false);
     };
 

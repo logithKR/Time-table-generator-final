@@ -97,12 +97,7 @@ const SubjectManager = () => {
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h3 className="text-xl font-bold">Subjects</h3>
-                <button
-                    onClick={() => setIsAdding(true)}
-                    className="btn-primary flex items-center gap-2 py-2 px-4 text-sm"
-                >
-                    <Plus size={16} /> Add Subject
-                </button>
+                
             </div>
 
             {/* Filters Section */}
@@ -170,12 +165,7 @@ const SubjectManager = () => {
                     </div>
                     <h3 className="text-lg font-bold text-slate-600 mb-1">No Subjects Found</h3>
                     <p className="text-slate-500 mb-6 max-w-xs mx-auto">Add subjects to start building your curriculum.</p>
-                    <button
-                        onClick={() => setIsAdding(true)}
-                        className="btn-primary py-2 px-6"
-                    >
-                        Add First Subject
-                    </button>
+                    
                 </div>
             ) : filteredSubjects.length === 0 ? (
                 <div className="text-center py-10 bg-slate-50 rounded-xl border border-slate-200">

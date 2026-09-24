@@ -1,555 +1,145 @@
-const express = require('express');
+﻿const express = require('express');
 const { db } = require('../database');
 const router = express.Router();
-const { spawn } = require('child_process');
+
+function handleDbError(e, res) {
+  console.error('DB/API Error:', e);
+  if (e.code === 'SQLITE_CONSTRAINT_UNIQUE') return res.status(409).json({ detail: 'This record already exists. Please check for duplicates.' });
+  if (e.code === 'SQLITE_CONSTRAINT_FOREIGNKEY') return res.status(400).json({ detail: 'Cannot perform this action because this item is currently in use or linked to existing data.' });
+  if (e.code === 'SQLITE_CONSTRAINT_NOTNULL') return res.status(400).json({ detail: 'Missing required information. Please fill out all necessary fields.' });
+  if (e.message && e.message.includes('NOT NULL')) return res.status(400).json({ detail: 'Missing required fields.' });
+  return res.status(500).json({ detail: e.message || 'An unexpected internal error occurred.' });
+}
+
 const path = require('path');
 
-router.get('/health', (req, res) => {
-    res.json({ status: "ok" });
-});
+router.get('/health', (req, res) => { res.json({ status: "ok" }); });
 
-// ============================================
 // SEMESTER CONFIG
-// ============================================
-router.get('/semester-config', (req, res) => {
-    try {
-        const configs = db.prepare("SELECT * FROM semester_config").all();
-        res.json(configs);
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+router.get('/semester-config', (req, res) => { try { res.json(db.prepare("SELECT * FROM semester_config").all()); } catch (e) { handleDbError(e, res); } });
+router.post('/semester-config/:semester', (req, res) => { try { const { semester } = req.params; const { academic_year } = req.body; const existing = db.prepare("SELECT * FROM semester_config WHERE semester = ?").get(semester); if (existing) { db.prepare("UPDATE semester_config SET academic_year = ? WHERE semester = ?").run(academic_year, semester); } else { db.prepare("INSERT INTO semester_config (semester, academic_year) VALUES (?, ?)").run(semester, academic_year); } res.json(db.prepare("SELECT * FROM semester_config WHERE semester = ?").get(semester)); } catch (e) { handleDbError(e, res); } });
 
-router.post('/semester-config/:semester', (req, res) => {
-    try {
-        const { semester } = req.params;
-        const { academic_year } = req.body;
-        const existing = db.prepare("SELECT * FROM semester_config WHERE semester = ?").get(semester);
-        if (existing) {
-            db.prepare("UPDATE semester_config SET academic_year = ? WHERE semester = ?").run(academic_year, semester);
-        } else {
-            db.prepare("INSERT INTO semester_config (semester, academic_year) VALUES (?, ?)").run(semester, academic_year);
-        }
-        const updated = db.prepare("SELECT * FROM semester_config WHERE semester = ?").get(semester);
-        res.json(updated);
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-// ============================================
 // DEPARTMENTS
-// ============================================
-router.get('/departments', (req, res) => {
-    try {
-        const depts = db.prepare("SELECT * FROM department_master").all();
-        res.json(depts);
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+router.get('/departments', (req, res) => { try { res.json(db.prepare("SELECT * FROM department_master").all()); } catch (e) { handleDbError(e, res); } });
+router.post('/departments', (req, res) => { try { const { department_code, student_count, pair_add_course_miniproject } = req.body; const existing = db.prepare("SELECT * FROM department_master WHERE department_code = ?").get(department_code); if (existing) return res.status(400).json({ detail: `Department ${department_code} already exists` }); db.prepare("INSERT INTO department_master (department_code, student_count, pair_add_course_miniproject) VALUES (?, ?, ?)").run(department_code, student_count || 0, pair_add_course_miniproject ? 1 : 0); res.json({ status: "success", department_code }); } catch (e) { handleDbError(e, res); } });
+router.put('/departments/:code', (req, res) => { try { const { code } = req.params; const { student_count, pair_add_course_miniproject } = req.body; const existing = db.prepare("SELECT * FROM department_master WHERE department_code = ?").get(code); if (!existing) return res.status(404).json({ detail: "Department not found" }); if (student_count !== undefined) db.prepare("UPDATE department_master SET student_count = ? WHERE department_code = ?").run(student_count, code); if (pair_add_course_miniproject !== undefined) db.prepare("UPDATE department_master SET pair_add_course_miniproject = ? WHERE department_code = ?").run(pair_add_course_miniproject ? 1 : 0, code); res.json(db.prepare("SELECT * FROM department_master WHERE department_code = ?").get(code)); } catch (e) { handleDbError(e, res); } });
+router.delete('/departments/:code', (req, res) => { try { const { code } = req.params; const existing = db.prepare("SELECT * FROM department_master WHERE department_code = ?").get(code); if (!existing) return res.status(404).json({ detail: "Department not found" }); const facCount = db.prepare("SELECT COUNT(*) as c FROM faculty_master WHERE department_code = ?").get(code).c; const courseCount = db.prepare("SELECT COUNT(*) as c FROM course_master WHERE department_code = ?").get(code).c; const studentCount = db.prepare("SELECT COUNT(*) as c FROM student_master WHERE department_code = ?").get(code).c; if (facCount > 0 || courseCount > 0 || studentCount > 0) return res.status(400).json({ detail: `Cannot delete: ${facCount} faculty, ${courseCount} courses, and ${studentCount} students still linked.` }); db.prepare("DELETE FROM department_master WHERE department_code = ?").run(code); res.json({ status: "deleted" }); } catch (e) { handleDbError(e, res); } });
+router.get('/departments/:code/capacities', (req, res) => { try { res.json(db.prepare("SELECT * FROM department_semester_count WHERE department_code = ?").all(req.params.code)); } catch (e) { handleDbError(e, res); } });
+router.post('/departments/:code/capacities', (req, res) => { try { const { code } = req.params; const semester = req.query.semester || req.body.semester; const { student_count, section_count } = req.body; const existing = db.prepare("SELECT * FROM department_semester_count WHERE department_code = ? AND semester = ?").get(code, semester); if (existing) { db.prepare("UPDATE department_semester_count SET student_count = ?, section_count = ? WHERE department_code = ? AND semester = ?").run(student_count || 0, section_count || 1, code, semester); } else { db.prepare("INSERT INTO department_semester_count (department_code, semester, student_count, section_count) VALUES (?, ?, ?, ?)").run(code, semester, student_count || 0, section_count || 1); } res.json(db.prepare("SELECT * FROM department_semester_count WHERE department_code = ? AND semester = ?").get(code, semester)); } catch (e) { handleDbError(e, res); } });
 
-router.post('/departments', (req, res) => {
-    try {
-        const { department_code, student_count, pair_add_course_miniproject } = req.body;
-        const existing = db.prepare("SELECT * FROM department_master WHERE department_code = ?").get(department_code);
-        if (existing) return res.status(400).json({ detail: `Department ${department_code} already exists` });
-        
-        db.prepare("INSERT INTO department_master (department_code, student_count, pair_add_course_miniproject) VALUES (?, ?, ?)")
-          .run(department_code, student_count || 0, pair_add_course_miniproject ? 1 : 0);
-        res.json({ status: "success", department_code });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+// SEMESTERS
+router.get('/semesters', (req, res) => { try { res.json([1,2,3,4,5,6,7,8].map(i => ({ semester_number: i }))); } catch (e) { handleDbError(e, res); } });
 
-router.put('/departments/:code', (req, res) => {
-    try {
-        const { code } = req.params;
-        const { student_count, pair_add_course_miniproject } = req.body;
-        const existing = db.prepare("SELECT * FROM department_master WHERE department_code = ?").get(code);
-        if (!existing) return res.status(404).json({ detail: "Department not found" });
-
-        if (student_count !== undefined) {
-            db.prepare("UPDATE department_master SET student_count = ? WHERE department_code = ?").run(student_count, code);
-        }
-        if (pair_add_course_miniproject !== undefined) {
-            db.prepare("UPDATE department_master SET pair_add_course_miniproject = ? WHERE department_code = ?").run(pair_add_course_miniproject ? 1 : 0, code);
-        }
-        const updated = db.prepare("SELECT * FROM department_master WHERE department_code = ?").get(code);
-        res.json(updated);
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.delete('/departments/:code', (req, res) => {
-    try {
-        const { code } = req.params;
-        const existing = db.prepare("SELECT * FROM department_master WHERE department_code = ?").get(code);
-        if (!existing) return res.status(404).json({ detail: "Department not found" });
-
-        const facCount = db.prepare("SELECT COUNT(*) as c FROM faculty_master WHERE department_code = ?").get(code).c;
-        const courseCount = db.prepare("SELECT COUNT(*) as c FROM course_master WHERE department_code = ?").get(code).c;
-
-        if (facCount > 0 || courseCount > 0) {
-            return res.status(400).json({ detail: `Cannot delete: ${facCount} faculty and ${courseCount} courses still linked.` });
-        }
-        db.prepare("DELETE FROM department_master WHERE department_code = ?").run(code);
-        res.json({ status: "deleted" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.get('/departments/:code/capacities', (req, res) => {
-    try {
-        const { code } = req.params;
-        const existing = db.prepare("SELECT * FROM department_master WHERE department_code = ?").get(code);
-        if (!existing) return res.status(404).json({ detail: "Department not found" });
-
-        const capacities = db.prepare("SELECT * FROM department_semester_count WHERE department_code = ? ORDER BY semester").all();
-        res.json(capacities);
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.post('/departments/:code/capacities', (req, res) => {
-    try {
-        const { code } = req.params;
-        const { semester } = req.query;
-        const { student_count } = req.body;
-        if (!semester) return res.status(400).json({ detail: "Missing semester query param" });
-
-        const existing = db.prepare("SELECT * FROM department_master WHERE department_code = ?").get(code);
-        if (!existing) return res.status(404).json({ detail: "Department not found" });
-
-        const record = db.prepare("SELECT * FROM department_semester_count WHERE department_code = ? AND semester = ?").get(code, semester);
-        if (record) {
-            db.prepare("UPDATE department_semester_count SET student_count = ? WHERE department_code = ? AND semester = ?").run(student_count, code, semester);
-        } else {
-            db.prepare("INSERT INTO department_semester_count (department_code, semester, student_count) VALUES (?, ?, ?)").run(code, semester, student_count);
-        }
-        const updated = db.prepare("SELECT * FROM department_semester_count WHERE department_code = ? AND semester = ?").get(code, semester);
-        res.json(updated);
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.get('/semesters', (req, res) => {
-    const sems = [];
-    for (let i = 1; i <= 8; i++) sems.push({ semester_number: i });
-    res.json(sems);
-});
-
-// ============================================
 // FACULTY
-// ============================================
-router.get('/faculty', (req, res) => {
-    try {
-        const { department_code } = req.query;
-        let query = "SELECT * FROM faculty_master";
-        const params = [];
-        if (department_code) {
-            query += " WHERE department_code = ?";
-            params.push(department_code);
-        }
-        res.json(db.prepare(query).all(...params));
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+router.get('/faculty', (req, res) => { try { const { department_code } = req.query; let q = "SELECT * FROM faculty_master"; const p = []; if (department_code) { q += " WHERE department_code = ?"; p.push(department_code); } res.json(db.prepare(q).all(...p)); } catch (e) { handleDbError(e, res); } });
+router.post('/faculty', (req, res) => { try { const { faculty_id, faculty_name, department_code, designation } = req.body; db.prepare("INSERT INTO faculty_master (faculty_id, faculty_name, department_code, designation) VALUES (?, ?, ?, ?)").run(faculty_id, faculty_name, department_code, designation || null); res.json({ status: "success", faculty_id }); } catch (e) { handleDbError(e, res); } });
+router.put('/faculty/:fid', (req, res) => { try { const { fid } = req.params; const { faculty_name, department_code, designation } = req.body; db.prepare("UPDATE faculty_master SET faculty_name=?, department_code=?, designation=? WHERE faculty_id=?").run(faculty_name, department_code, designation || null, fid); res.json(db.prepare("SELECT * FROM faculty_master WHERE faculty_id = ?").get(fid)); } catch (e) { handleDbError(e, res); } });
+router.delete('/faculty/:fid', (req, res) => { try { db.prepare("DELETE FROM faculty_master WHERE faculty_id = ?").run(req.params.fid); res.json({ status: "deleted" }); } catch (e) { handleDbError(e, res); } });
 
-router.post('/faculty', (req, res) => {
-    try {
-        const { faculty_id, faculty_name, faculty_email, department_code, status } = req.body;
-        const existing = db.prepare("SELECT * FROM faculty_master WHERE faculty_id = ?").get(faculty_id);
-        if (existing) return res.status(400).json({ detail: `Faculty ${faculty_id} already exists` });
-        
-        const dept = db.prepare("SELECT * FROM department_master WHERE department_code = ?").get(department_code);
-        if (!dept) return res.status(400).json({ detail: `Department ${department_code} does not exist` });
+// COURSE-FACULTY
+router.get('/course-faculty', (req, res) => { try { const { department_code } = req.query; let q = "SELECT * FROM course_faculty_map"; const p = []; if (department_code) { q += " WHERE department_code = ?"; p.push(department_code); } res.json(db.prepare(q).all(...p)); } catch (e) { handleDbError(e, res); } });
+router.post('/course-faculty', (req, res) => { try { const { course_code, faculty_id, department_code } = req.body; db.prepare("INSERT INTO course_faculty_map (course_code, faculty_id, department_code) VALUES (?, ?, ?)").run(course_code, faculty_id, department_code); res.json({ status: "success" }); } catch (e) { handleDbError(e, res); } });
+router.delete('/course-faculty/:id', (req, res) => { try { db.prepare("DELETE FROM course_faculty_map WHERE id = ?").run(req.params.id); res.json({ status: "deleted" }); } catch (e) { handleDbError(e, res); } });
 
-        db.prepare("INSERT INTO faculty_master (faculty_id, faculty_name, faculty_email, department_code, status) VALUES (?, ?, ?, ?, ?)").run(
-            faculty_id, faculty_name, faculty_email, department_code, status || 'ACTIVE'
-        );
-        res.json({ status: "success" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.put('/faculty/:fid', (req, res) => {
-    try {
-        const { fid } = req.params;
-        const { faculty_name, faculty_email, department_code, status } = req.body;
-        const existing = db.prepare("SELECT * FROM faculty_master WHERE faculty_id = ?").get(fid);
-        if (!existing) return res.status(404).json({ detail: "Faculty not found" });
-
-        db.prepare("UPDATE faculty_master SET faculty_name = ?, faculty_email = ?, department_code = ?, status = ? WHERE faculty_id = ?").run(
-            faculty_name, faculty_email, department_code, status, fid
-        );
-        res.json(db.prepare("SELECT * FROM faculty_master WHERE faculty_id = ?").get(fid));
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.delete('/faculty/:fid', (req, res) => {
-    try {
-        const { fid } = req.params;
-        const existing = db.prepare("SELECT * FROM faculty_master WHERE faculty_id = ?").get(fid);
-        if (!existing) return res.status(404).json({ detail: "Faculty not found" });
-
-        const count = db.prepare("SELECT COUNT(*) as c FROM course_faculty_map WHERE faculty_id = ?").get(fid).c;
-        if (count > 0) return res.status(400).json({ detail: "Cannot delete faculty, they are mapped to courses." });
-
-        db.prepare("DELETE FROM faculty_master WHERE faculty_id = ?").run(fid);
-        res.json({ status: "deleted" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-// ============================================
-// COURSE FACULTY MAP
-// ============================================
-router.get('/course-faculty', (req, res) => {
-    try {
-        const { department_code } = req.query;
-        let query = "SELECT * FROM course_faculty_map";
-        const params = [];
-        if (department_code) {
-            query += " WHERE department_code = ?";
-            params.push(department_code);
-        }
-        res.json(db.prepare(query).all(...params));
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.post('/course-faculty', (req, res) => {
-    try {
-        const { course_code, faculty_id, department_code, delivery_type } = req.body;
-        db.prepare("INSERT INTO course_faculty_map (course_code, faculty_id, department_code, delivery_type) VALUES (?, ?, ?, ?)").run(
-            course_code, faculty_id, department_code, delivery_type || 'THEORY'
-        );
-        res.json({ status: "success" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.delete('/course-faculty/:id', (req, res) => {
-    try {
-        db.prepare("DELETE FROM course_faculty_map WHERE id = ?").run(req.params.id);
-        res.json({ status: "deleted" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-// ============================================
 // COURSES
-// ============================================
-router.get('/courses', (req, res) => {
-    try {
-        const { department_code, semester } = req.query;
-        let query = "SELECT * FROM course_master WHERE 1=1";
-        const params = [];
-        if (department_code) { query += " AND department_code = ?"; params.push(department_code); }
-        if (semester) { query += " AND semester = ?"; params.push(semester); }
-        res.json(db.prepare(query).all(...params));
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+router.get('/courses', (req, res) => { try { const { department_code, semester } = req.query; let q = "SELECT * FROM course_master WHERE 1=1"; const p = []; if (department_code) { q += " AND department_code = ?"; p.push(department_code); } if (semester) { q += " AND semester = ?"; p.push(parseInt(semester)); } res.json(db.prepare(q).all(...p)); } catch (e) { handleDbError(e, res); } });
+router.post('/courses', (req, res) => { try { const { course_code, course_name, department_code, semester, credits, course_type, weekly_sessions, is_lab, is_open_elective, needs_venue, category, learning_mode } = req.body; db.prepare("INSERT INTO course_master (course_code, course_name, department_code, semester, credits, course_type, weekly_sessions, is_lab, is_open_elective, needs_venue, category, learning_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(course_code, course_name, department_code, semester, credits || 0, course_type || 'theory', weekly_sessions || 1, is_lab ? 1 : 0, is_open_elective ? 1 : 0, needs_venue !== false ? 1 : 0, category || null, learning_mode || null); res.json({ status: "success", course_code }); } catch (e) { handleDbError(e, res); } });
+router.put('/courses/:code', (req, res) => { try { const { code } = req.params; const fields = req.body; const sets = []; const vals = []; for (const [k, v] of Object.entries(fields)) { if (k === 'course_code') continue; if (typeof v === 'boolean') { sets.push(`${k} = ?`); vals.push(v ? 1 : 0); } else { sets.push(`${k} = ?`); vals.push(v); } } if (sets.length === 0) return res.json(db.prepare("SELECT * FROM course_master WHERE course_code = ?").get(code)); vals.push(code); db.prepare(`UPDATE course_master SET ${sets.join(', ')} WHERE course_code = ?`).run(...vals); res.json(db.prepare("SELECT * FROM course_master WHERE course_code = ?").get(code)); } catch (e) { handleDbError(e, res); } });
+router.delete('/courses/:code', (req, res) => { try { db.prepare("DELETE FROM course_master WHERE course_code = ?").run(req.params.code); res.json({ status: "deleted" }); } catch (e) { handleDbError(e, res); } });
 
-router.post('/courses', (req, res) => {
-    try {
-        const d = req.body;
-        const existing = db.prepare("SELECT * FROM course_master WHERE course_code = ? AND department_code = ? AND semester = ?").get(
-            d.course_code, d.department_code, d.semester
-        );
-        if (existing) return res.status(400).json({ detail: `Course ${d.course_code} already exists for this dept/sem` });
-
-        db.prepare(`
-            INSERT INTO course_master (
-                course_code, department_code, semester, course_name, course_category, delivery_type,
-                lecture_hours, tutorial_hours, practical_hours, weekly_sessions, credits,
-                is_lab, is_elective, is_open_elective, is_honours, is_minor, is_add_course, enrolled_students
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-            d.course_code, d.department_code, d.semester, d.course_name, d.course_category, d.delivery_type,
-            d.lecture_hours || 0, d.tutorial_hours || 0, d.practical_hours || 0, d.weekly_sessions, d.credits || 0,
-            d.is_lab ? 1 : 0, d.is_elective ? 1 : 0, d.is_open_elective ? 1 : 0, d.is_honours ? 1 : 0,
-            d.is_minor ? 1 : 0, d.is_add_course ? 1 : 0, d.enrolled_students || 0
-        );
-        res.json({ status: "success" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.put('/courses/:code', (req, res) => {
-    try {
-        const { code } = req.params;
-        const d = req.body;
-        // Simplified update for brevity, update matching course in SQLite
-        db.prepare(`
-            UPDATE course_master SET
-                course_name = ?, course_category = ?, delivery_type = ?,
-                lecture_hours = ?, tutorial_hours = ?, practical_hours = ?,
-                weekly_sessions = ?, credits = ?, is_lab = ?, is_elective = ?,
-                is_open_elective = ?, is_honours = ?, is_minor = ?, is_add_course = ?, enrolled_students = ?
-            WHERE course_code = ? AND department_code = ? AND semester = ?
-        `).run(
-            d.course_name, d.course_category, d.delivery_type,
-            d.lecture_hours, d.tutorial_hours, d.practical_hours,
-            d.weekly_sessions, d.credits,
-            d.is_lab ? 1 : 0, d.is_elective ? 1 : 0,
-            d.is_open_elective ? 1 : 0, d.is_honours ? 1 : 0, d.is_minor ? 1 : 0, d.is_add_course ? 1 : 0, d.enrolled_students,
-            code, d.department_code, d.semester
-        );
-        res.json({ status: "updated" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.delete('/courses/:code', (req, res) => {
-    try {
-        const { code } = req.params;
-        db.prepare("DELETE FROM course_master WHERE course_code = ?").run(code);
-        res.json({ status: "deleted" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-// ============================================
 // SLOTS
-// ============================================
-router.get('/slots', (req, res) => {
-    try {
-        res.json(db.prepare("SELECT * FROM slot_master").all());
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+router.get('/slots', (req, res) => { try { res.json(db.prepare("SELECT * FROM slot_master ORDER BY day_of_week, period_number").all()); } catch (e) { handleDbError(e, res); } });
+router.post('/slots', (req, res) => { try { const { day_of_week, period_number, start_time, end_time, slot_type, is_active, semester_ids } = req.body; db.prepare("INSERT INTO slot_master (day_of_week, period_number, start_time, end_time, slot_type, is_active, semester_ids) VALUES (?, ?, ?, ?, ?, ?, ?)").run(day_of_week, period_number, start_time, end_time, slot_type, is_active !== false ? 1 : 0, semester_ids || null); res.json({ status: "success" }); } catch (e) { handleDbError(e, res); } });
+router.put('/slots/:id', (req, res) => { try { const { id } = req.params; const { day_of_week, period_number, start_time, end_time, slot_type, is_active, semester_ids } = req.body; db.prepare("UPDATE slot_master SET day_of_week=?, period_number=?, start_time=?, end_time=?, slot_type=?, is_active=?, semester_ids=? WHERE slot_id=?").run(day_of_week, period_number, start_time, end_time, slot_type, is_active ? 1 : 0, semester_ids, id); res.json({ status: "updated" }); } catch (e) { handleDbError(e, res); } });
+router.delete('/slots/:id', (req, res) => { try { db.prepare("DELETE FROM slot_master WHERE slot_id = ?").run(req.params.id); res.json({ status: "deleted" }); } catch (e) { handleDbError(e, res); } });
 
-router.post('/slots', (req, res) => {
-    try {
-        const { day_of_week, period_number, start_time, end_time, slot_type, is_active, semester_ids } = req.body;
-        db.prepare("INSERT INTO slot_master (day_of_week, period_number, start_time, end_time, slot_type, is_active, semester_ids) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-            day_of_week, period_number, start_time, end_time, slot_type || 'REGULAR', is_active !== false ? 1 : 0, semester_ids || "[]"
-        );
-        res.json({ status: "success" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.put('/slots/:id', (req, res) => {
-    try {
-        const { id } = req.params;
-        const { day_of_week, period_number, start_time, end_time, slot_type, is_active, semester_ids } = req.body;
-        db.prepare("UPDATE slot_master SET day_of_week=?, period_number=?, start_time=?, end_time=?, slot_type=?, is_active=?, semester_ids=? WHERE slot_id=?").run(
-            day_of_week, period_number, start_time, end_time, slot_type, is_active ? 1 : 0, semester_ids, id
-        );
-        res.json({ status: "updated" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.delete('/slots/:id', (req, res) => {
-    try {
-        db.prepare("DELETE FROM slot_master WHERE slot_id = ?").run(req.params.id);
-        res.json({ status: "deleted" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-// ============================================
 // BREAKS
-// ============================================
-router.get('/breaks', (req, res) => {
-    try {
-        res.json(db.prepare("SELECT * FROM break_config_master").all());
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+router.get('/breaks', (req, res) => { try { res.json(db.prepare("SELECT * FROM break_config_master").all()); } catch (e) { handleDbError(e, res); } });
+router.post('/breaks', (req, res) => { try { const { break_type, start_time, end_time, semester_ids } = req.body; db.prepare("INSERT INTO break_config_master (break_type, start_time, end_time, semester_ids) VALUES (?, ?, ?, ?)").run(break_type, start_time, end_time, semester_ids || "[]"); res.json({ status: "success" }); } catch (e) { handleDbError(e, res); } });
+router.put('/breaks/:id', (req, res) => { try { const { id } = req.params; const { break_type, start_time, end_time, semester_ids } = req.body; db.prepare("UPDATE break_config_master SET break_type=?, start_time=?, end_time=?, semester_ids=? WHERE id=?").run(break_type, start_time, end_time, semester_ids, id); res.json({ status: "updated" }); } catch (e) { handleDbError(e, res); } });
+router.delete('/breaks/:id', (req, res) => { try { db.prepare("DELETE FROM break_config_master WHERE id = ?").run(req.params.id); res.json({ status: "deleted" }); } catch (e) { handleDbError(e, res); } });
 
-router.post('/breaks', (req, res) => {
-    try {
-        const { break_type, start_time, end_time, semester_ids } = req.body;
-        db.prepare("INSERT INTO break_config_master (break_type, start_time, end_time, semester_ids) VALUES (?, ?, ?, ?)").run(
-            break_type, start_time, end_time, semester_ids || "[]"
-        );
-        res.json({ status: "success" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+// VENUES
+router.get('/venues', (req, res) => { try { res.json(db.prepare("SELECT * FROM venue_master").all()); } catch (e) { handleDbError(e, res); } });
+router.post('/venues', (req, res) => { try { const { venue_name, block, is_lab, capacity } = req.body; const existing = db.prepare("SELECT * FROM venue_master WHERE venue_name = ?").get(venue_name); if (existing) return res.status(400).json({ detail: `Venue '${venue_name}' already exists` }); const result = db.prepare("INSERT INTO venue_master (venue_name, block, is_lab, capacity) VALUES (?, ?, ?, ?)").run(venue_name, block || null, is_lab ? 1 : 0, capacity || 60); res.json(db.prepare("SELECT * FROM venue_master WHERE venue_id = ?").get(result.lastInsertRowid)); } catch (e) { handleDbError(e, res); } });
+router.put('/venues/:id', (req, res) => { try { const { id } = req.params; const venue = db.prepare("SELECT * FROM venue_master WHERE venue_id = ?").get(id); if (!venue) return res.status(404).json({ detail: "Venue not found" }); const { venue_name, block, is_lab, capacity } = req.body; if (venue_name !== undefined && venue_name !== venue.venue_name) { const dup = db.prepare("SELECT * FROM venue_master WHERE venue_name = ? AND venue_id != ?").get(venue_name, id); if (dup) return res.status(400).json({ detail: `Venue '${venue_name}' already exists` }); } db.prepare("UPDATE venue_master SET venue_name=COALESCE(?,venue_name), block=COALESCE(?,block), is_lab=COALESCE(?,is_lab), capacity=COALESCE(?,capacity) WHERE venue_id=?").run(venue_name !== undefined ? venue_name : null, block !== undefined ? block : null, is_lab !== undefined ? (is_lab ? 1 : 0) : null, capacity !== undefined ? capacity : null, id); res.json(db.prepare("SELECT * FROM venue_master WHERE venue_id = ?").get(id)); } catch (e) { handleDbError(e, res); } });
+router.delete('/venues/:id', (req, res) => { try { db.prepare("DELETE FROM venue_master WHERE venue_id = ?").run(req.params.id); res.json({ status: "deleted" }); } catch (e) { handleDbError(e, res); } });
 
-router.put('/breaks/:id', (req, res) => {
-    try {
-        const { id } = req.params;
-        const { break_type, start_time, end_time, semester_ids } = req.body;
-        db.prepare("UPDATE break_config_master SET break_type=?, start_time=?, end_time=?, semester_ids=? WHERE id=?").run(
-            break_type, start_time, end_time, semester_ids, id
-        );
-        res.json({ status: "updated" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+// DEPARTMENT-VENUE MAPPING
+router.get('/department-venues', (req, res) => { try { const { department_code, semester } = req.query; let q = "SELECT dv.*, v.venue_name, v.is_lab, v.capacity, v.block FROM department_venue_map dv JOIN venue_master v ON dv.venue_id = v.venue_id WHERE 1=1"; const p = []; if (department_code) { q += " AND dv.department_code = ?"; p.push(department_code); } if (semester) { q += " AND dv.semester = ?"; p.push(semester); } res.json(db.prepare(q).all(...p)); } catch (e) { handleDbError(e, res); } });
+router.post('/department-venues', (req, res) => { try { const { department_code, venue_id, semester, venue_type } = req.body; const existing = db.prepare("SELECT * FROM department_venue_map WHERE department_code = ? AND venue_id = ? AND semester = ?").get(department_code, venue_id, semester); if (existing) return res.status(400).json({ detail: "This venue is already mapped." }); const result = db.prepare("INSERT INTO department_venue_map (department_code, venue_id, semester, venue_type) VALUES (?, ?, ?, ?)").run(department_code, venue_id, semester, (venue_type || 'BOTH').toUpperCase()); const row = db.prepare("SELECT dv.*, v.venue_name, v.is_lab, v.capacity, v.block FROM department_venue_map dv JOIN venue_master v ON dv.venue_id = v.venue_id WHERE dv.id = ?").get(result.lastInsertRowid); res.json(row); } catch (e) { handleDbError(e, res); } });
+router.delete('/department-venues/:id', (req, res) => { try { db.prepare("DELETE FROM department_venue_map WHERE id = ?").run(req.params.id); res.json({ status: "success" }); } catch (e) { handleDbError(e, res); } });
 
-router.delete('/breaks/:id', (req, res) => {
-    try {
-        db.prepare("DELETE FROM break_config_master WHERE id = ?").run(req.params.id);
-        res.json({ status: "deleted" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-// ============================================
+// COURSE-VENUE MAPPING
+router.get('/course-venues', (req, res) => { try { const { department_code } = req.query; let q = "SELECT * FROM course_venue_map WHERE 1=1"; const p = []; if (department_code) { q += " AND department_code = ?"; p.push(department_code); } const maps = db.prepare(q).all(...p); const result = maps.map(m => { const venue = db.prepare("SELECT * FROM venue_master WHERE venue_id = ?").get(m.venue_id); return venue ? { id: m.id, department_code: m.department_code, course_code: m.course_code, venue_id: venue.venue_id, venue_name: venue.venue_name, is_lab: venue.is_lab, capacity: venue.capacity, venue_type: m.venue_type || 'BOTH' } : null; }).filter(Boolean); res.json(result); } catch (e) { handleDbError(e, res); } });
+router.post('/course-venues', (req, res) => { try { const { department_code, course_code, venue_id, venue_type } = req.body; const isCommon = db.prepare("SELECT * FROM common_course_map WHERE course_code = ?").get(course_code); if (isCommon) return res.status(400).json({ detail: `'${course_code}' is a common course.` }); const existing = db.prepare("SELECT * FROM course_venue_map WHERE department_code = ? AND course_code = ? AND venue_id = ?").get(department_code, course_code, venue_id); if (existing) return res.status(400).json({ detail: "Already mapped." }); const result = db.prepare("INSERT INTO course_venue_map (department_code, course_code, venue_id, venue_type) VALUES (?, ?, ?, ?)").run(department_code, course_code, venue_id, (venue_type || 'BOTH').toUpperCase()); const venue = db.prepare("SELECT * FROM venue_master WHERE venue_id = ?").get(venue_id); res.json({ id: result.lastInsertRowid, department_code, course_code, venue_id: venue.venue_id, venue_name: venue.venue_name, is_lab: venue.is_lab, capacity: venue.capacity, venue_type: (venue_type || 'BOTH').toUpperCase() }); } catch (e) { handleDbError(e, res); } });
+router.delete('/course-venues/:id', (req, res) => { try { db.prepare("DELETE FROM course_venue_map WHERE id = ?").run(req.params.id); res.json({ status: "success", id: parseInt(req.params.id) }); } catch (e) { handleDbError(e, res); } });
+
+// COMMON COURSES
+router.get('/common-courses', (req, res) => { try { const rows = db.prepare("SELECT * FROM common_course_map").all(); const groups = {}; for (const row of rows) { const key = `${row.course_code}__${row.semester}`; if (!groups[key]) groups[key] = { course_code: row.course_code, semester: row.semester, departments: [], venue_name: row.venue_name, venue_type: row.venue_type || 'BOTH', dept_student_counts: [] }; const semCount = db.prepare("SELECT * FROM department_semester_count WHERE department_code = ? AND semester = ?").get(row.department_code, row.semester); const count = (semCount && semCount.student_count > 0) ? semCount.student_count : 0; groups[key].departments.push(row.department_code); groups[key].dept_student_counts.push({ dept: row.department_code, count }); if (row.venue_name && !groups[key].venue_name) { groups[key].venue_name = row.venue_name; groups[key].venue_type = row.venue_type || 'BOTH'; } } res.json(Object.values(groups)); } catch (e) { handleDbError(e, res); } });
+router.post('/common-courses', (req, res) => { try { const { course_code, semester, department_codes } = req.body; let existingVenue = null; let existingType = 'BOTH'; const oldRows = db.prepare("SELECT * FROM common_course_map WHERE course_code = ? AND semester = ?").all(course_code, semester); for (const r of oldRows) { if (r.venue_name) { existingVenue = r.venue_name; existingType = r.venue_type || 'BOTH'; break; } } db.prepare("DELETE FROM common_course_map WHERE course_code = ? AND semester = ?").run(course_code, semester); const ins = db.prepare("INSERT INTO common_course_map (course_code, semester, department_code, venue_name, venue_type) VALUES (?, ?, ?, ?, ?)"); for (const dept of department_codes) ins.run(course_code, semester, dept, existingVenue, existingType); res.json({ status: "saved", course_code, semester }); } catch (e) { handleDbError(e, res); } });
+router.post('/common-courses/venue', (req, res) => { try { const { course_code, semester, venue_name, venue_type } = req.body; const rows = db.prepare("SELECT * FROM common_course_map WHERE course_code = ? AND semester = ?").all(course_code, semester); if (!rows.length) return res.status(404).json({ detail: "Not found" }); const vtype = (venue_type || 'BOTH').toUpperCase(); db.prepare("UPDATE common_course_map SET venue_name = ?, venue_type = ? WHERE course_code = ? AND semester = ?").run(venue_name, vtype, course_code, semester); db.prepare("UPDATE timetable_entries SET venue_name = ? WHERE course_code = ? AND semester = ?").run(venue_name, course_code, semester); res.json({ status: "saved", course_code, semester, venue_name, venue_type: vtype, synced_departments: rows.map(r => r.department_code) }); } catch (e) { handleDbError(e, res); } });
+router.delete('/common-courses/venue/:courseCode/:semester', (req, res) => { try { const { courseCode, semester } = req.params; const result = db.prepare("UPDATE common_course_map SET venue_name = NULL, venue_type = 'BOTH' WHERE course_code = ? AND semester = ?").run(courseCode, semester); res.json({ status: "cleared", rows: result.changes }); } catch (e) { handleDbError(e, res); } });
+router.get('/common-courses/student-distribution/:courseCode/:semester', (req, res) => { try { const { courseCode, semester } = req.params; const rows = db.prepare("SELECT * FROM common_course_map WHERE course_code = ? AND semester = ?").all(courseCode, semester); if (!rows.length) return res.status(404).json({ detail: "Not found" }); const breakdown = []; let total = 0; for (const row of rows) { const sc = db.prepare("SELECT * FROM department_semester_count WHERE department_code = ? AND semester = ?").get(row.department_code, semester); const count = (sc && sc.student_count > 0) ? sc.student_count : 0; breakdown.push({ dept: row.department_code, count }); total += count; } res.json({ course_code: courseCode, semester: parseInt(semester), total, departments: breakdown }); } catch (e) { handleDbError(e, res); } });
+router.delete('/common-courses/:courseCode/:semester', (req, res) => { try { const { courseCode, semester } = req.params; const result = db.prepare("DELETE FROM common_course_map WHERE course_code = ? AND semester = ?").run(courseCode, semester); res.json({ status: "deleted", rows: result.changes }); } catch (e) { handleDbError(e, res); } });
+
+// STUDENTS
+router.get('/students', (req, res) => { try { const { department_code, semester } = req.query; let q = "SELECT * FROM student_master WHERE 1=1"; const p = []; if (department_code) { q += " AND department_code = ?"; p.push(department_code); } if (semester) { q += " AND semester = ?"; p.push(parseInt(semester)); } res.json(db.prepare(q).all(...p)); } catch (e) { handleDbError(e, res); } });
+router.post('/students', (req, res) => { try { const { student_id, student_name, department_code, semester } = req.body; db.prepare("INSERT INTO student_master (student_id, student_name, department_code, semester) VALUES (?, ?, ?, ?)").run(student_id, student_name, department_code, semester); res.json(db.prepare("SELECT * FROM student_master WHERE student_id = ?").get(student_id)); } catch (e) { handleDbError(e, res); } });
+router.delete('/students/:id', (req, res) => { try { db.prepare("DELETE FROM student_master WHERE student_id = ?").run(req.params.id); res.json({ status: "deleted" }); } catch (e) { handleDbError(e, res); } });
+
+// REGISTRATIONS
+router.get('/registrations', (req, res) => { try { const { course_code, semester } = req.query; let q = "SELECT * FROM course_registrations WHERE 1=1"; const p = []; if (course_code) { q += " AND course_code = ?"; p.push(course_code); } if (semester) { q += " AND semester = ?"; p.push(parseInt(semester)); } res.json(db.prepare(q).all(...p)); } catch (e) { handleDbError(e, res); } });
+router.post('/registrations', (req, res) => { try { const { student_id, course_code, semester } = req.body; const result = db.prepare("INSERT INTO course_registrations (student_id, course_code, semester) VALUES (?, ?, ?)").run(student_id, course_code, semester); res.json(db.prepare("SELECT * FROM course_registrations WHERE id = ?").get(result.lastInsertRowid)); } catch (e) { handleDbError(e, res); } });
+router.delete('/registrations/:id', (req, res) => { try { db.prepare("DELETE FROM course_registrations WHERE id = ?").run(req.params.id); res.json({ status: "deleted" }); } catch (e) { handleDbError(e, res); } });
+
+// TIMETABLE VIEWS
+router.get('/timetable/faculty/:faculty_id', (req, res) => { try { const entries = db.prepare("SELECT * FROM timetable_entries WHERE faculty_id = ?").all(req.params.faculty_id); const slot_map = {}; const conflicts = new Set(); for (const e of entries) { const key = `${e.day_of_week}_${e.period_number}`; if (!slot_map[key]) slot_map[key] = []; slot_map[key].push(e); } for (const [key, items] of Object.entries(slot_map)) { if (items.length > 1) { const venues = new Set(items.map(i => i.venue_name).filter(Boolean)); if (venues.size > 1) { const cs = items.map(i => `${i.course_code} (${i.venue_name})`).join(" & "); const [day, period] = key.split('_'); conflicts.add(`Conflict on ${day} Period ${period}: ${cs}`); } } } res.json({ conflicts: Array.from(conflicts), timetable: entries }); } catch (e) { handleDbError(e, res); } });
+router.get('/timetable/student/:student_id', (req, res) => { try { const student = db.prepare("SELECT * FROM student_master WHERE student_id = ?").get(req.params.student_id); if (!student) return res.status(404).json({ detail: "Student not found" }); const regs = db.prepare("SELECT * FROM course_registrations WHERE student_id = ?").all(req.params.student_id); const valid_entries = {}; for (const r of regs) { const c_entries = db.prepare("SELECT * FROM timetable_entries WHERE course_code = ? AND semester = ?").all(r.course_code, r.semester); for (const e of c_entries) { if (e.section_number === 1 || e.section_number === null) { const key = `${e.course_code}_${e.day_of_week}_${e.period_number}`; if (!valid_entries[key]) valid_entries[key] = e; } } } const entries = Object.values(valid_entries); const slot_map = {}; const conflicts = new Set(); for (const e of entries) { const key = `${e.day_of_week}_${e.period_number}`; if (!slot_map[key]) slot_map[key] = []; slot_map[key].push(e); } for (const [key, items] of Object.entries(slot_map)) { if (items.length > 1) { const cc = new Set(items.map(i => i.course_code)); if (cc.size > 1) { const [day, period] = key.split('_'); conflicts.add(`Conflict on ${day} Period ${period}: ${Array.from(cc).join(" & ")}`); } } } res.json({ conflicts: Array.from(conflicts), timetable: entries }); } catch (e) { handleDbError(e, res); } });
+router.get('/timetable/venue/:venue_name', (req, res) => { try { const all_entries = db.prepare("SELECT * FROM timetable_entries").all(); const raw = []; for (const e of all_entries) { if (e.venue_name) { const parts = e.venue_name.split(',').map(v => v.trim()); if (parts.includes(req.params.venue_name)) raw.push(e); } } const conflicts = new Set(); const sg = {}; for (const e of raw) { const key = `${e.day_of_week}_${e.period_number}`; if (!sg[key]) sg[key] = []; sg[key].push(e); } const entries = []; for (const [sk, se] of Object.entries(sg)) { const cg = {}; for (const e of se) { if (!cg[e.course_code]) cg[e.course_code] = []; cg[e.course_code].push(e); } if (Object.keys(cg).length > 1) { const [day, period] = sk.split('_'); conflicts.add(`Double booking on ${day} Period ${period}: ${Object.keys(cg).join(" & ")}`); } for (const ce of Object.values(cg)) entries.push(ce[0]); } res.json({ conflicts: Array.from(conflicts), timetable: entries }); } catch (e) { handleDbError(e, res); } });
+
+// AVAILABILITIES
+router.get('/available-faculty', (req, res) => { try { const { department_code, day, period, show_all } = req.query; let fq = "SELECT * FROM faculty_master"; const fp = []; if (department_code && show_all !== 'true') { fq += " WHERE department_code = ?"; fp.push(department_code); } const allFac = db.prepare(fq).all(...fp); const busy = db.prepare("SELECT DISTINCT faculty_id FROM timetable_entries WHERE day_of_week = ? AND period_number = ?").all(day, period); const busyIds = new Set(busy.map(e => e.faculty_id)); res.json(allFac.map(f => ({ ...f, is_available: !busyIds.has(f.faculty_id) }))); } catch (e) { handleDbError(e, res); } });
+router.get('/available-venues', (req, res) => { try { const { department_code, semester, day, period, show_all } = req.query; let venues; if (show_all === 'true') { venues = db.prepare("SELECT * FROM venue_master").all(); } else { venues = db.prepare("SELECT v.* FROM venue_master v JOIN department_venue_map dv ON v.venue_id = dv.venue_id WHERE dv.department_code = ? AND dv.semester = ?").all(department_code, parseInt(semester)); } const busy = db.prepare("SELECT venue_name FROM timetable_entries WHERE day_of_week = ? AND period_number = ?").all(day, period); const busyNames = new Set(); for (const e of busy) { if (e.venue_name) e.venue_name.split(',').map(v => v.trim()).forEach(v => busyNames.add(v)); } res.json(venues.map(v => ({ ...v, is_available: !busyNames.has(v.venue_name) }))); } catch (e) { handleDbError(e, res); } });
+router.post('/check-conflicts', (req, res) => { try { const { entries } = req.body; const fc = []; const vc = []; if (entries && Array.isArray(entries)) { for (const entry of entries) { if (entry.faculty_id) { const clash = db.prepare("SELECT * FROM timetable_entries WHERE faculty_id = ? AND day_of_week = ? AND period_number = ? AND department_code != ?").all(entry.faculty_id, entry.day_of_week, entry.period_number, entry.department_code || ''); for (const c of clash) fc.push({ faculty_id: entry.faculty_id, day: entry.day_of_week, period: entry.period_number, conflicting_dept: c.department_code, conflicting_course: c.course_code }); } if (entry.venue_name) { const vclash = db.prepare("SELECT * FROM timetable_entries WHERE venue_name = ? AND day_of_week = ? AND period_number = ? AND department_code != ?").all(entry.venue_name, entry.day_of_week, entry.period_number, entry.department_code || ''); for (const c of vclash) vc.push({ venue_name: entry.venue_name, day: entry.day_of_week, period: entry.period_number, conflicting_dept: c.department_code, conflicting_course: c.course_code }); } } } res.json({ faculty_conflicts: fc, venue_conflicts: vc }); } catch (e) { handleDbError(e, res); } });
+router.get('/api/conflicts', (req, res) => { try { const { department_code, semester } = req.query; let q = "SELECT * FROM timetable_entries WHERE 1=1"; const p = []; if (department_code) { q += " AND department_code = ?"; p.push(department_code); } if (semester) { q += " AND semester = ?"; p.push(parseInt(semester)); } const entries = db.prepare(q).all(...p); const fs = {}; const vs = {}; const conflicts = []; for (const e of entries) { const sk = `${e.day_of_week}_${e.period_number}`; if (e.faculty_id) { const fk = `${e.faculty_id}_${sk}`; if (!fs[fk]) fs[fk] = []; fs[fk].push(e); } if (e.venue_name) { const vk = `${e.venue_name}_${sk}`; if (!vs[vk]) vs[vk] = []; vs[vk].push(e); } } for (const [k, items] of Object.entries(fs)) { if (items.length > 1) { const depts = new Set(items.map(i => i.department_code)); if (depts.size > 1) conflicts.push({ type: 'faculty', faculty_id: items[0].faculty_id, entries: items }); } } for (const [k, items] of Object.entries(vs)) { if (items.length > 1) { const depts = new Set(items.map(i => i.department_code)); if (depts.size > 1) conflicts.push({ type: 'venue', venue_name: items[0].venue_name, entries: items }); } } res.json(conflicts); } catch (e) { handleDbError(e, res); } });
+
 // USER CONSTRAINTS
-// ============================================
-router.get('/user-constraints', (req, res) => {
-    try {
-        const { department_code, semester } = req.query;
-        let query = "SELECT * FROM user_constraints WHERE 1=1";
-        const params = [];
-        if (department_code) { query += " AND department_code = ?"; params.push(department_code); }
-        if (semester) { query += " AND semester = ?"; params.push(semester); }
-        res.json(db.prepare(query).all(...params));
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+router.get('/api/user-constraints', (req, res) => { try { const { dept, sem } = req.query; let q = "SELECT * FROM user_constraints WHERE 1=1"; const p = []; if (dept) { q += " AND department_code = ?"; p.push(dept); } if (sem) { q += " AND semester = ?"; p.push(parseInt(sem)); } q += " ORDER BY order_index ASC, id ASC"; const rows = db.prepare(q).all(...p); res.json(rows.map(r => ({ id: r.id, uuid: r.uuid, name: r.name, description: r.description, enabled: !!r.enabled, priority: r.priority, soft_weight: r.soft_weight, constraint_type: r.constraint_type, scope: r.scope_json ? JSON.parse(r.scope_json) : {}, target: r.target_json ? JSON.parse(r.target_json) : {}, rules: r.rules_json ? JSON.parse(r.rules_json) : {}, created_at: r.created_at, updated_at: r.updated_at, order_index: r.order_index, department_code: r.department_code, semester: r.semester }))); } catch (e) { handleDbError(e, res); } });
+router.post('/api/user-constraints', (req, res) => { try { const { name, description, constraint_type, scope, target, rules, priority, soft_weight, department_code, semester } = req.body; const uuid = require('crypto').randomUUID(); const now = new Date().toISOString(); db.prepare("INSERT INTO user_constraints (uuid, name, description, constraint_type, scope_json, target_json, rules_json, priority, soft_weight, enabled, department_code, semester, created_at, updated_at, order_index) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 0)").run(uuid, name, description || '', constraint_type, JSON.stringify(scope || {}), JSON.stringify(target || {}), JSON.stringify(rules || {}), priority || 'MEDIUM', soft_weight || 50, department_code || null, semester || null, now, now); res.json({ status: "created", uuid }); } catch (e) { handleDbError(e, res); } });
+router.put('/api/user-constraints/:uuid', (req, res) => { try { const { uuid } = req.params; const { name, description, constraint_type, scope, target, rules, priority, soft_weight, enabled } = req.body; const now = new Date().toISOString(); db.prepare("UPDATE user_constraints SET name=?, description=?, constraint_type=?, scope_json=?, target_json=?, rules_json=?, priority=?, soft_weight=?, enabled=?, updated_at=? WHERE uuid=?").run(name, description || '', constraint_type, JSON.stringify(scope || {}), JSON.stringify(target || {}), JSON.stringify(rules || {}), priority || 'MEDIUM', soft_weight || 50, enabled !== false ? 1 : 0, now, uuid); res.json({ status: "updated", uuid }); } catch (e) { handleDbError(e, res); } });
+router.delete('/api/user-constraints/:uuid', (req, res) => { try { db.prepare("DELETE FROM user_constraints WHERE uuid = ?").run(req.params.uuid); res.json({ status: "deleted" }); } catch (e) { handleDbError(e, res); } });
+router.patch('/api/user-constraints/:uuid/toggle', (req, res) => { try { const row = db.prepare("SELECT * FROM user_constraints WHERE uuid = ?").get(req.params.uuid); if (!row) return res.status(404).json({ detail: "Not found" }); db.prepare("UPDATE user_constraints SET enabled = ?, updated_at = ? WHERE uuid = ?").run(row.enabled ? 0 : 1, new Date().toISOString(), req.params.uuid); res.json({ status: "toggled", enabled: !row.enabled }); } catch (e) { handleDbError(e, res); } });
+router.post('/api/user-constraints/reorder', (req, res) => { try { const { order } = req.body; const update = db.prepare("UPDATE user_constraints SET order_index = ? WHERE uuid = ?"); const txn = db.transaction((items) => { items.forEach((uuid, idx) => update.run(idx, uuid)); }); txn(order); res.json({ status: "reordered" }); } catch (e) { handleDbError(e, res); } });
+router.post('/api/user-constraints/validate', (req, res) => { res.json({ valid: true, errors: [], warnings: [] }); });
 
-router.post('/user-constraints', (req, res) => {
-    try {
-        const { department_code, semester, constraint_type, course_code, faculty_id, day_of_week, period_number, priority, is_active, notes } = req.body;
-        db.prepare(`
-            INSERT INTO user_constraints (department_code, semester, constraint_type, course_code, faculty_id, day_of_week, period_number, priority, is_active, notes)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(department_code, semester, constraint_type, course_code, faculty_id, day_of_week, period_number, priority || 'MEDIUM', is_active !== false ? 1 : 0, notes);
-        res.json({ status: "success" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+// SCHEDULER CONFIG
+const DEFAULT_CONFIG = {"validation":{"hard_constraint_mode":{"value":false,"enabled":false,"type":"flag","label":"Hard Constraint Mode","description":"Block generation when insufficient resources"}},"hard_constraints":{"max_courses_per_slot":{"value":1,"enabled":true,"type":"number","label":"Max Courses Per Slot"},"lab_block_starts":{"value":[1,3,5],"enabled":true,"type":"array","label":"Lab Block Start Periods"},"max_lab_blocks_per_day":{"value":1,"enabled":true,"type":"number","label":"Max Lab Blocks Per Day"},"mentor_hour_blocked":{"value":true,"enabled":true,"type":"boolean","label":"Block Mentor Hour"},"no_faculty_clash":{"value":true,"enabled":true,"type":"boolean","label":"No Faculty Clash"},"no_theory_in_own_lab":{"value":true,"enabled":true,"type":"boolean","label":"No Theory in Own Lab Block"}},"dynamic_constraints":{"max_theory_per_course_per_day":{"value":1,"overloaded_value":2,"enabled":true,"type":"number","label":"Max Theory/Course/Day"},"max_theory_per_course_per_day_overloaded":{"value":2,"enabled":true,"type":"number"},"no_back_to_back_theory":{"value":true,"enabled":true,"type":"boolean","label":"No Back-to-Back Theory"},"p8_honours_only":{"value":true,"enabled":true,"type":"boolean","label":"Period 8 for Honours Only"}},"soft_constraints":{"non_consecutive_lab_days_penalty":{"value":-5,"enabled":true,"type":"number"},"theory_lab_same_day_bonus":{"value":3,"enabled":true,"type":"number"},"fill_slots_bonus":{"value":10,"enabled":true,"type":"number"}},"section_settings":{"min_section_threshold":{"value":30,"enabled":true,"type":"number"},"default_venue_capacity":{"value":60,"enabled":true,"type":"number"}},"gap_fill":{"mini_project_max_periods":{"value":4,"enabled":true,"type":"number"},"core_extra_max_per_week":{"value":3,"enabled":true,"type":"number"},"core_extra_max_per_day":{"value":2,"enabled":true,"type":"number"},"open_elective_periods":{"value":3,"enabled":true,"type":"number"}},"batch_rotation":{"enabled":{"value":true,"enabled":true,"type":"boolean"},"venue_aware_rotation":{"value":true,"enabled":true,"type":"boolean"},"max_merged_entries":{"value":15,"enabled":true,"type":"number"}},"elective_handling":{"pair_same_category":{"value":true,"enabled":true,"type":"boolean"},"skip_no_faculty_lang":{"value":true,"enabled":true,"type":"boolean"}},"honours_minor":{"slot_restriction":{"value":8,"enabled":true,"type":"number"}}};
 
-router.delete('/user-constraints/:id', (req, res) => {
-    try {
-        db.prepare("DELETE FROM user_constraints WHERE id = ?").run(req.params.id);
-        res.json({ status: "deleted" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
+function mergeConfigs(defaultC, savedC) { const result = JSON.parse(JSON.stringify(defaultC)); if (!savedC || typeof savedC !== 'object') return result; for (const [cat, items] of Object.entries(savedC)) { if (cat in result && typeof items === 'object') { for (const [key, val] of Object.entries(items)) { if (key in result[cat] && typeof val === 'object') { for (const sk of ['value', 'enabled', 'overloaded_value']) { if (sk in val) result[cat][key][sk] = val[sk]; } } else { result[cat][key] = val; } } } else { result[cat] = items; } } return result; }
 
-// ============================================
+router.get('/api/config', (req, res) => { try { const row = db.prepare("SELECT * FROM scheduler_config WHERE id = 1").get(); if (!row) { db.prepare("INSERT INTO scheduler_config (id, config_json) VALUES (1, ?)").run(JSON.stringify(DEFAULT_CONFIG)); return res.json(DEFAULT_CONFIG); } res.json(mergeConfigs(DEFAULT_CONFIG, row.config_json ? JSON.parse(row.config_json) : {})); } catch (e) { res.json(DEFAULT_CONFIG); } });
+router.put('/api/config', (req, res) => { try { const config = req.body; const row = db.prepare("SELECT * FROM scheduler_config WHERE id = 1").get(); if (!row) db.prepare("INSERT INTO scheduler_config (id, config_json) VALUES (1, ?)").run(JSON.stringify(config)); else db.prepare("UPDATE scheduler_config SET config_json = ? WHERE id = 1").run(JSON.stringify(config)); res.json({ status: "saved" }); } catch (e) { handleDbError(e, res); } });
+router.post('/api/config/reset', (req, res) => { try { const row = db.prepare("SELECT * FROM scheduler_config WHERE id = 1").get(); if (row) db.prepare("UPDATE scheduler_config SET config_json = ? WHERE id = 1").run(JSON.stringify(DEFAULT_CONFIG)); else db.prepare("INSERT INTO scheduler_config (id, config_json) VALUES (1, ?)").run(JSON.stringify(DEFAULT_CONFIG)); res.json(DEFAULT_CONFIG); } catch (e) { handleDbError(e, res); } });
+router.get('/api/semester-config', (req, res) => { try { res.json(db.prepare("SELECT * FROM semester_config").all()); } catch (e) { handleDbError(e, res); } });
+router.post('/api/semester-config/:semester', (req, res) => { try { const { semester } = req.params; const { academic_year } = req.body; const existing = db.prepare("SELECT * FROM semester_config WHERE semester = ?").get(semester); if (existing) db.prepare("UPDATE semester_config SET academic_year = ? WHERE semester = ?").run(academic_year, semester); else db.prepare("INSERT INTO semester_config (semester, academic_year) VALUES (?, ?)").run(semester, academic_year); res.json(db.prepare("SELECT * FROM semester_config WHERE semester = ?").get(semester)); } catch (e) { handleDbError(e, res); } });
+
 // TIMETABLE GENERATION & FETCHING
-// ============================================
+router.post('/generate', async (req, res) => { try { const { generate_schedule } = require('../services/solver_engine'); const { department_code, semester, mentor_day, mentor_period, learning_mode_ids: raw_learning_mode_ids, locked_slots } = req.body; const learning_mode_ids = (typeof raw_learning_mode_ids === "string") ? raw_learning_mode_ids.split(",").map(s => s.trim()) : (raw_learning_mode_ids || ["1","2"]); try { const status = db.prepare("SELECT * FROM timetable_status WHERE department_code = ? AND semester = ?").get(department_code, semester); if (status && status.is_finalized) return res.status(403).json({ detail: "This timetable is finalized. Please unfinalize first." }); } catch (e) {} let config = DEFAULT_CONFIG; try { const cr = db.prepare("SELECT * FROM scheduler_config WHERE id = 1").get(); if (cr && cr.config_json) config = mergeConfigs(DEFAULT_CONFIG, JSON.parse(cr.config_json)); } catch (e) {} let hard_mode = false; try { hard_mode = !!(config.validation && config.validation.hard_constraint_mode && config.validation.hard_constraint_mode.enabled); } catch (e) {} const result = await generate_schedule(db, department_code, semester, mentor_day, mentor_period, hard_mode, learning_mode_ids, locked_slots || []); if (typeof result === 'boolean') { if (result) return res.json({ status: "success", message: "Timetable generated successfully", warnings: [] }); const courses = db.prepare("SELECT * FROM course_master WHERE department_code = ? AND semester = ? AND is_open_elective = 0").all(department_code, semester); if (!courses.length) return res.status(400).json({ detail: `No courses found for ${department_code} Sem ${semester}.` }); const totalWs = courses.reduce((sum, c) => sum + (c.weekly_sessions || 0), 0); return res.status(400).json({ detail: `Cannot generate: ${totalWs} weekly sessions.` }); } if (!result || !result.success) { if (result && result.errors) return res.status(422).json({ detail: { message: "Resource verification failed.", errors: result.errors || [], warnings: result.warnings || [] } }); return res.status(400).json({ detail: "Solver failed." }); } res.json({ status: "success", message: `Generated ${result.entries_saved || 0} entries.`, warnings: result.warnings || [], entries_saved: result.entries_saved || 0 }); } catch (e) { console.error("Generate error:", e); res.status(500).json({ detail: e.message }); } });
 
-router.post('/generate', (req, res) => {
-    try {
-        const payload = JSON.stringify(req.body);
-        
-        // Spawn the python solver wrapper
-        // Note: Working directory should be properly resolved in actual environment
-        const pythonProcess = spawn('python', [path.resolve(__dirname, '../../python_solver/run_solver.py')]);
-        
-        let dataString = '';
-        let errString = '';
+router.get('/timetable', (req, res) => { try { const { department_code, semester, learning_mode_ids } = req.query; let q = "SELECT * FROM timetable_entries WHERE 1=1"; const p = []; if (department_code && department_code.trim()) { q += " AND department_code = ?"; p.push(department_code); } if (semester) { q += " AND semester = ?"; p.push(parseInt(semester)); } if (learning_mode_ids) { q += " AND learning_mode_ids = ?"; p.push(learning_mode_ids); } res.json(db.prepare(q).all(...p)); } catch (e) { handleDbError(e, res); } });
+router.get('/timetable/entries', (req, res) => { try { const { department_code, semester } = req.query; let q = "SELECT * FROM timetable_entries WHERE 1=1"; const p = []; if (department_code) { q += " AND department_code = ?"; p.push(department_code); } if (semester) { q += " AND semester = ?"; p.push(parseInt(semester)); } res.json(db.prepare(q).all(...p)); } catch (e) { handleDbError(e, res); } });
+router.post('/timetable/save', (req, res) => { try { const { department_code, semester, entries, learning_mode_ids } = req.body; try { const status = db.prepare("SELECT * FROM timetable_status WHERE department_code = ? AND semester = ?").get(department_code, semester); if (status && status.is_finalized) return res.status(403).json({ detail: "Timetable is finalized." }); } catch (e) {} const modeStr = learning_mode_ids || '1,2'; db.prepare("DELETE FROM timetable_entries WHERE department_code = ? AND semester = ? AND learning_mode_ids = ?").run(department_code, semester, modeStr); if (entries && entries.length) { const ins = db.prepare("INSERT INTO timetable_entries (department_code, semester, day_of_week, period_number, course_code, course_name, faculty_id, faculty_name, venue_name, section_number, learning_mode_ids, slot_id, session_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"); const txn = db.transaction((items) => { for (const e of items) ins.run(e.department_code || department_code, e.semester || semester, e.day_of_week, e.period_number, e.course_code, e.course_name || null, e.faculty_id || null, e.faculty_name || null, e.venue_name || null, e.section_number || null, modeStr, e.slot_id || 1, e.session_type || null); }); txn(entries); } res.json({ status: "success" }); } catch (e) { handleDbError(e, res); } });
+router.get('/timetable/conflicts', (req, res) => { res.json([]); });
+router.get('/export/timetable/excel', (req, res) => { res.status(501).json({ detail: "Excel export not ported yet." }); });
 
-        pythonProcess.stdin.write(payload);
-        pythonProcess.stdin.end();
-
-        pythonProcess.stdout.on('data', (data) => {
-            dataString += data.toString();
-        });
-
-        pythonProcess.stderr.on('data', (data) => {
-            errString += data.toString();
-        });
-
-        pythonProcess.on('close', (code) => {
-            if (code !== 0) {
-                console.error("Python Solver Error:", errString);
-                return res.status(500).json({ success: false, errors: [{ message: errString || 'Python process failed' }] });
-            }
-            try {
-                const result = JSON.parse(dataString);
-                res.json(result);
-            } catch (e) {
-                console.error("Failed to parse Python output:", dataString);
-                res.status(500).json({ success: false, errors: [{ message: 'Invalid JSON from solver', details: dataString }] });
-            }
-        });
-    } catch (e) {
-        res.status(500).json({ success: false, errors: [{ message: e.message }] });
-    }
-});
-
-router.get('/timetable', (req, res) => {
-    try {
-        const { department_code, semester } = req.query;
-        if (!department_code || !semester) {
-            return res.status(400).json({ detail: "Missing department_code or semester" });
-        }
-        
-        // Return latest saved timetable from JSON dump in timetable_data table
-        const record = db.prepare("SELECT * FROM timetable_data WHERE department_code = ? AND semester = ? ORDER BY id DESC LIMIT 1").get(department_code, semester);
-        if (record && record.timetable_json) {
-            res.json(JSON.parse(record.timetable_json));
-        } else {
-            res.json({});
-        }
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.get('/timetable/entries', (req, res) => {
-    try {
-        const { department_code, semester } = req.query;
-        let query = "SELECT * FROM timetable_entries WHERE 1=1";
-        const params = [];
-        if (department_code) { query += " AND department_code = ?"; params.push(department_code); }
-        if (semester) { query += " AND semester = ?"; params.push(semester); }
-        res.json(db.prepare(query).all(...params));
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.post('/timetable/save', (req, res) => {
-    try {
-        const { department_code, semester, timetable_data, learning_modes } = req.body;
-        db.prepare("INSERT INTO timetable_data (department_code, semester, timetable_json, learning_modes, created_at) VALUES (?, ?, ?, ?, datetime('now'))").run(
-            department_code, semester, JSON.stringify(timetable_data), learning_modes || "1,2"
-        );
-        res.json({ status: "success" });
-    } catch (e) {
-        res.status(500).json({ detail: e.message });
-    }
-});
-
-router.get('/timetable/conflicts', (req, res) => {
-    // Basic stub - in python it calculated real-time overlaps. We'll return empty for now, or you can implement the SQL query.
-    res.json([]);
-});
-
-router.get('/timetable/export-excel', (req, res) => {
-    res.status(501).json({ detail: "Excel export not fully ported yet. Available in Python." });
-});
+// CMS SYNC (stub)
+router.post('/sync-cms', (req, res) => { res.status(501).json({ detail: "CMS sync not available in Node.js." }); });
+router.get('/sync-cms/status', (req, res) => { res.json({ status: "not_available" }); });
 
 module.exports = router;
+
+
+
+
+

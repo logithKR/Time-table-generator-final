@@ -251,8 +251,8 @@ export const getCommonCourseStudentDist = (courseCode, semester) =>
     axios.get(`${API_URL}/common-courses/student-distribution/${courseCode}/${semester}`);
 
 // --- Semester Configs (Academic Year) ---
-export const getSemesterConfigs = () => axios.get(`${API_URL}/api/semester-config`);
-export const updateSemesterConfig = (semester, data) => axios.post(`${API_URL}/api/semester-config/${semester}`, data);
+export const getSemesterConfigs = () => axios.get(`${API_URL}/semester-config`);
+export const updateSemesterConfig = (semester, data) => axios.post(`${API_URL}/semester-config/${semester}`, data);
 
 // --- User Constraints ---
 export const getUserConstraints = (dept, sem) => {

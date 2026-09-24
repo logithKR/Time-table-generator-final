@@ -15,8 +15,9 @@ const BITTimetable = ({ timetableData, department, semester, courses, slots, bre
     const [showVenues, setShowVenues] = useState(true);
     const [showConflictsPanel, setShowConflictsPanel] = useState(true);
 
-    const safeConflicts = conflicts || { faculty_conflicts: [], venue_conflicts: [] };
-    const hasConflicts = safeConflicts.faculty_conflicts.length > 0 || safeConflicts.venue_conflicts.length > 0;
+    const facConflicts = Array.isArray(conflicts) ? conflicts.filter(c => c.type === 'faculty') : (conflicts?.faculty_conflicts || []);
+    const venConflicts = Array.isArray(conflicts) ? conflicts.filter(c => c.type === 'venue') : (conflicts?.venue_conflicts || []);
+    const hasConflicts = facConflicts.length > 0 || venConflicts.length > 0;
 
     const handlePrint = () => {
         window.print();
@@ -244,7 +245,7 @@ const BITTimetable = ({ timetableData, department, semester, courses, slots, bre
                                 <AlertCircle size={16} />
                             </div>
                             <h3 className="font-bold text-rose-800 text-sm">
-                                Detected Conflicts ({safeConflicts.faculty_conflicts.length + safeConflicts.venue_conflicts.length})
+                                Detected Conflicts ({facConflicts.length + venConflicts.length})
                             </h3>
                             <span className="text-xs bg-white/60 text-rose-600 px-2 py-0.5 rounded-full font-semibold border border-rose-200">
                                 Fix required
@@ -257,13 +258,13 @@ const BITTimetable = ({ timetableData, department, semester, courses, slots, bre
                     
                     {showConflictsPanel && (
                         <div className="p-4 border-t border-rose-100 max-h-64 overflow-y-auto">
-                            {safeConflicts.faculty_conflicts.length > 0 && (
+                            {facConflicts.length > 0 && (
                                 <div className="mb-4 last:mb-0">
                                     <h4 className="text-xs font-bold text-rose-700 uppercase tracking-widest mb-2 flex items-center gap-2">
                                         <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span> Faculty Clashes
                                     </h4>
                                     <div className="space-y-2 pl-3">
-                                        {safeConflicts.faculty_conflicts.map((c, i) => (
+                                        {facConflicts.map((c, i) => (
                                             <div key={i} className="text-[11px] bg-rose-50/50 p-2 rounded-lg border border-rose-100 flex items-start flex-col gap-1">
                                                 <div className="flex items-center gap-2 font-bold text-gray-800 flex-wrap">
                                                     <span className="text-rose-600">{c.faculty_name}</span> is scheduled in multiple classes on <span className="bg-white px-1 border rounded">{c.day} P{c.period}</span>:
@@ -282,13 +283,13 @@ const BITTimetable = ({ timetableData, department, semester, courses, slots, bre
                                 </div>
                             )}
                             
-                            {safeConflicts.venue_conflicts.length > 0 && (
+                            {venConflicts.length > 0 && (
                                 <div className="mb-0">
                                     <h4 className="text-xs font-bold text-orange-600 uppercase tracking-widest mb-2 flex items-center gap-2">
                                         <span className="w-1.5 h-1.5 rounded-full bg-orange-500"></span> Venue Overbookings
                                     </h4>
                                     <div className="space-y-2 pl-3">
-                                        {safeConflicts.venue_conflicts.map((c, i) => (
+                                        {venConflicts.map((c, i) => (
                                             <div key={i} className="text-[11px] bg-orange-50/50 p-2 rounded-lg border border-orange-100 flex items-start flex-col gap-1">
                                                 <div className="flex items-center gap-2 font-bold text-gray-800 flex-wrap">
                                                     <span className="text-orange-600">{c.venue_name}</span> is overbooked on <span className="bg-white px-1 border rounded">{c.day} P{c.period}</span>:
@@ -464,8 +465,8 @@ const BITTimetable = ({ timetableData, department, semester, courses, slots, bre
                                             // Check conflicts for this specific block
                                             const factIds = groupEntries.map(e => e.faculty_id);
                                             const venueName = groupEntries[0]?.venue_name;
-                                            const hasFacConflict = safeConflicts.faculty_conflicts.some(c => c.day === day && c.period === i + 1 && factIds.includes(c.faculty_id));
-                                            const hasVenConflict = safeConflicts.venue_conflicts.some(c => c.day === day && c.period === i + 1 && c.venue_name === venueName);
+                                            const hasFacConflict = facConflicts.some(c => c.day === day && c.period === i + 1 && factIds.includes(c.faculty_id));
+                                            const hasVenConflict = venConflicts.some(c => c.day === day && c.period === i + 1 && c.venue_name === venueName);
                                             
                                             const conflictBorder = hasFacConflict || hasVenConflict ? '2px dashed #ef4444' : 'none';
                                             const conflictBg = hasFacConflict || hasVenConflict ? '#fef2f2' : 'transparent';

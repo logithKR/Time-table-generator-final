@@ -120,6 +120,7 @@ function App() {
     const [selectedSem, setSelectedSem] = useState('');
     const [mentorDay, setMentorDay] = useState('Friday');
     const [mentorPeriod, setMentorPeriod] = useState(7);
+    const [lockedSlots, setLockedSlots] = useState([]);
     const [selectedLearningModes, setSelectedLearningModes] = useState([1, 2]); // 1: UAL, 2: PBL
 
     const [timetableEntries, setTimetableEntries] = useState([]);
@@ -324,7 +325,8 @@ function App() {
             const res = await api.generateTimetable({
                 department_code: selectedDept, semester: parseInt(selectedSem),
                 mentor_day: mentorDay, mentor_period: parseInt(mentorPeriod),
-                learning_mode_ids: selectedLearningModes
+                learning_mode_ids: selectedLearningModes,
+                locked_slots: lockedSlots
             });
             
             if (res.data.status === 'success') {
@@ -735,9 +737,7 @@ function App() {
             <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
                     <div className="flex-1">{renderFilterBar(true, filtered.length, allCourses.length)}</div>
-                    <button onClick={() => setShowAddCourse(!showAddCourse)} className="flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-violet-200 hover:shadow-violet-300 transition-all whitespace-nowrap hover:-translate-y-0.5 active:scale-95">
-                        <Plus className="w-4 h-4" /> Add Course
-                    </button>
+                    
                 </div>
 
                 {showAddCourse && (
@@ -976,7 +976,7 @@ function App() {
                                             <th className="p-3.5 text-center font-semibold text-gray-500 text-xs uppercase tracking-wider">Cr</th>
                                             <th className="p-3.5 text-center font-semibold text-gray-500 text-xs uppercase tracking-wider">Weekly</th>
                                             <th className="p-3.5 text-center font-semibold text-gray-500 text-xs uppercase tracking-wider">Type</th>
-                                            <th className="p-3.5 text-center font-semibold text-gray-500 text-xs uppercase tracking-wider w-16">Actions</th>
+                                            
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -992,32 +992,16 @@ function App() {
                                                 <td className="p-3.5 text-center"><span className="bg-violet-100 text-violet-800 px-2.5 py-1 rounded-full text-xs font-bold">{c.weekly_sessions}</span></td>
                                                 <td className="p-3.5 text-center">
                                                     <div className="flex flex-wrap gap-1 justify-center">
-                                                        {c.is_honours && <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Honours</span>}
-                                                        {c.is_minor && <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Minor</span>}
-                                                        {c.is_lab && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Lab</span>}
-                                                        {c.is_elective && <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Elective</span>}
-                                                        {c.is_open_elective && <span className="bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Open Elec</span>}
-                                                        {c.is_add_course && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Add Course</span>}
+                                                        {!!c.is_honours && <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Honours</span>}
+                                                        {!!c.is_minor && <span className="bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Minor</span>}
+                                                        {!!c.is_lab && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Lab</span>}
+                                                        {!!c.is_elective && <span className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Elective</span>}
+                                                        {!!c.is_open_elective && <span className="bg-teal-100 text-teal-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Open Elec</span>}
+                                                        {!!c.is_add_course && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-lg text-[10px] font-semibold">Add Course</span>}
                                                         {!c.is_honours && !c.is_minor && !c.is_lab && !c.is_elective && !c.is_open_elective && !c.is_add_course && <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded-lg text-[10px] font-medium">Regular</span>}
                                                     </div>
                                                 </td>
-                                                <td className="p-3.5 text-center flex gap-1 justify-center">
-                                                    <button onClick={async () => {
-                                                        setEditingCourse(c);
-                                                        setNewCourseIsHonoursOrMinor(c.is_honours || c.is_minor);
-                                                        try {
-                                                            const { data: commonMap } = await api.getCommonCourses();
-                                                            const group = commonMap.find(g => g.course_code === c.course_code && g.semester === c.semester);
-                                                            if (group) {
-                                                                setNewCourseCommonDepts(group.departments.filter(d => d !== c.department_code));
-                                                            } else {
-                                                                setNewCourseCommonDepts([]);
-                                                            }
-                                                        } catch (e) { console.error("Could not load common departments", e); setNewCourseCommonDepts([]); }
-                                                        setShowAddCourse(false); // Close add if open
-                                                    }} className="text-violet-400 hover:text-violet-700 transition-colors p-1 rounded-lg hover:bg-violet-50" title="Edit"><Pencil className="w-4 h-4" /></button>
-                                                    <button onClick={() => handleDeleteCourse(c.course_code)} className="text-red-300 hover:text-red-600 transition-colors p-1 rounded-lg hover:bg-red-50" title="Delete"><Trash2 className="w-4 h-4" /></button>
-                                                </td>
+                                                
                                             </tr>
                                         ))}
                                     </tbody>
@@ -1045,12 +1029,12 @@ function App() {
 
                                         <div className="flex justify-between items-center mt-1">
                                             <div className="flex flex-wrap gap-1">
-                                                {c.is_honours && <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Honours</span>}
-                                                {c.is_minor && <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Minor</span>}
-                                                {c.is_lab && <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Lab</span>}
-                                                {c.is_elective && <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Elective</span>}
-                                                {c.is_open_elective && <span className="bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Open Elec</span>}
-                                                {c.is_add_course && <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Add Course</span>}
+                                                {!!c.is_honours && <span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Honours</span>}
+                                                {!!c.is_minor && <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Minor</span>}
+                                                {!!c.is_lab && <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Lab</span>}
+                                                {!!c.is_elective && <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Elective</span>}
+                                                {!!c.is_open_elective && <span className="bg-teal-100 text-teal-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Open Elec</span>}
+                                                {!!c.is_add_course && <span className="bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide">Add Course</span>}
                                             </div>
                                             <span className="text-xs font-semibold text-gray-500 bg-gray-100 px-2 py-1 rounded-md">{c.weekly_sessions} session{c.weekly_sessions > 1 ? 's' : ''}/wk</span>
                                         </div>
@@ -1098,9 +1082,7 @@ function App() {
             <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center gap-3">
                     <div className="flex-1">{renderFilterBar(false, filtered.length, allFaculty.length)}</div>
-                    <button onClick={() => setShowAddFaculty(!showAddFaculty)} className="flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-violet-200 hover:shadow-violet-300 transition-all whitespace-nowrap hover:-translate-y-0.5 active:scale-95">
-                        <Plus className="w-4 h-4" /> Add Faculty
-                    </button>
+                    
                 </div>
 
                 {showAddFaculty && (
@@ -1143,9 +1125,7 @@ function App() {
                                         <div className="flex-1 min-w-0">
                                             <div className="flex items-center justify-between">
                                                 <h4 className="font-bold text-gray-900 text-sm truncate">{f.faculty_name || 'Unknown'}</h4>
-                                                <button onClick={() => handleDeleteFaculty(f.faculty_id)} className="text-red-300 hover:text-red-600 sm:opacity-0 sm:group-hover:opacity-100 transition-all p-1.5 rounded-lg hover:bg-red-50" title="Delete">
-                                                    <Trash2 className="w-4 h-4" />
-                                                </button>
+                                                
                                             </div>
                                             <p className="text-xs text-gray-400 font-mono mt-0.5">{f.faculty_id}</p>
                                             <div className="flex items-center gap-2 mt-2.5">
@@ -1893,6 +1873,105 @@ function App() {
             </div>
             
             {/* --- GENERATION ERRORS INLINE (HARD MODE) --- */}
+            
+            {selectedDept && selectedSem && timetableEntries.length === 0 && (
+                <div className="bg-white p-6 rounded-2xl shadow-lg shadow-violet-50/50 border border-violet-100 mt-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                            <span className="p-1.5 bg-violet-100 rounded-lg text-violet-600">
+                                <Monitor className="w-4 h-4" />
+                            </span>
+                            <span>Pre-Lock Timetable Slots</span>
+                        </h3>
+                        <p className="text-xs text-gray-500 font-medium bg-gray-50 px-2 py-1 rounded border border-gray-100">Click cells to lock. They will be labeled "LOCKED" and kept empty during generation.</p>
+                    </div>
+                    
+                    <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-sm">
+                            <thead>
+                                <tr>
+                                    <th className="border border-violet-100 bg-violet-50 p-2 text-violet-800 font-semibold w-24">Day \ Period</th>
+                                    {[1, 2, 3, 4, 5, 6, 7, 8].map(p => (
+                                        <th key={p} 
+                                            onClick={() => {
+                                                const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                                                const isAllLocked = days.every(d => lockedSlots.some(s => s.day === d && s.period === p));
+                                                if (isAllLocked) {
+                                                    setLockedSlots(prev => prev.filter(s => s.period !== p));
+                                                } else {
+                                                    const newLocks = [...lockedSlots];
+                                                    days.forEach(d => {
+                                                        if (!newLocks.some(s => s.day === d && s.period === p)) {
+                                                            newLocks.push({ day: d, period: p });
+                                                        }
+                                                    });
+                                                    setLockedSlots(newLocks);
+                                                }
+                                            }}
+                                            className="border border-violet-100 bg-violet-50 p-2 text-violet-800 font-semibold cursor-pointer hover:bg-violet-100 transition-colors"
+                                            title="Click to lock/unlock entire period"
+                                        >
+                                            Period {p}
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(day => (
+                                    <tr key={day}>
+                                        <td 
+                                            onClick={() => {
+                                                const periods = [1, 2, 3, 4, 5, 6, 7, 8];
+                                                const isAllLocked = periods.every(p => lockedSlots.some(s => s.day === day && s.period === p));
+                                                if (isAllLocked) {
+                                                    setLockedSlots(prev => prev.filter(s => s.day !== day));
+                                                } else {
+                                                    const newLocks = [...lockedSlots];
+                                                    periods.forEach(p => {
+                                                        if (!newLocks.some(s => s.day === day && s.period === p)) {
+                                                            newLocks.push({ day: day, period: p });
+                                                        }
+                                                    });
+                                                    setLockedSlots(newLocks);
+                                                }
+                                            }}
+                                            className="border border-violet-100 bg-violet-50/50 p-2 font-medium text-gray-700 cursor-pointer hover:bg-violet-100 transition-colors"
+                                            title="Click to lock/unlock entire day"
+                                        >
+                                            {day}
+                                        </td>
+                                        {[1, 2, 3, 4, 5, 6, 7, 8].map(p => {
+                                            const isLocked = lockedSlots.some(s => s.day === day && s.period === p);
+                                            return (
+                                                <td 
+                                                    key={p} 
+                                                    onClick={() => {
+                                                        if (isLocked) {
+                                                            setLockedSlots(prev => prev.filter(s => !(s.day === day && s.period === p)));
+                                                        } else {
+                                                            setLockedSlots(prev => [...prev, { day, period: p }]);
+                                                        }
+                                                    }}
+                                                    className={`border p-2 text-center cursor-pointer transition-all hover:opacity-80 ${isLocked ? 'bg-rose-100 border-rose-200 shadow-inner' : 'border-gray-100 bg-white hover:bg-gray-50'}`}
+                                                >
+                                                    {isLocked ? (
+                                                        <div className="flex flex-col items-center justify-center text-rose-600">
+                                                            <span className="font-bold text-xs uppercase tracking-wider">Locked</span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-gray-300 text-xs">-</span>
+                                                    )}
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+            
             {generationErrors && (
                 <div className="bg-white rounded-2xl shadow-lg shadow-rose-100/50 w-full overflow-hidden flex flex-col border-2 border-rose-200">
                     <div className="bg-rose-50 border-b border-rose-100 p-6 flex items-start gap-4">
@@ -2171,9 +2250,9 @@ function App() {
                         { id: 'dashboard', icon: LayoutDashboard, label: 'Dashboard' },
                         { id: 'editor', icon: Edit2, label: 'Editor' },
                         { id: 'print', icon: Download, label: 'Print View' },
-                        // { id: 'departments', icon: Building2, label: 'Departments' },
-                        // { id: 'subjects', icon: BookOpen, label: 'Subjects' },
-                        // { id: 'faculty', icon: Users, label: 'Faculty' },
+                        { id: 'departments', icon: Building2, label: 'Departments' },
+                        { id: 'subjects', icon: BookOpen, label: 'Subjects' },
+                        { id: 'faculty', icon: Users, label: 'Faculty' },
                         // { id: 'students', icon: Users, label: 'Students & Reg.' },
                         { id: 'faculty_timetable', icon: BookOpen, label: 'Faculty Timetable' },
                         { id: 'student_timetable', icon: GraduationCap, label: 'Student Timetable' },

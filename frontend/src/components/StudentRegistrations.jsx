@@ -261,7 +261,7 @@ const StudentRegistrations = () => {
                                                 <th className="p-3.5 text-left font-semibold text-gray-500 text-xs uppercase tracking-wider">Name</th>
                                                 <th className="p-3.5 text-left font-semibold text-gray-500 text-xs uppercase tracking-wider">Email</th>
                                                 <th className="p-3.5 text-center font-semibold text-gray-500 text-xs uppercase tracking-wider">Department</th>
-                                                <th className="p-3.5 text-center font-semibold text-gray-500 text-xs uppercase tracking-wider w-16">Actions</th>
+                                                
                                             </>
                                         ) : (
                                             <>
@@ -269,7 +269,7 @@ const StudentRegistrations = () => {
                                                 <th className="p-3.5 text-left font-semibold text-gray-500 text-xs uppercase tracking-wider">Student ID</th>
                                                 <th className="p-3.5 text-left font-semibold text-gray-500 text-xs uppercase tracking-wider">Course Code</th>
                                                 <th className="p-3.5 text-center font-semibold text-gray-500 text-xs uppercase tracking-wider">Semester</th>
-                                                <th className="p-3.5 text-center font-semibold text-gray-500 text-xs uppercase tracking-wider w-16">Actions</th>
+                                                
                                             </>
                                         )}
                                     </tr>
@@ -379,65 +379,10 @@ const StudentRegistrations = () => {
             </div>
 
             {/* Add Student Modal */}
-            {isAddStudentModalOpen && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border-2 border-violet-200">
-                        <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Plus className="w-4 h-4 text-violet-600" /> Add New Student</h3>
-                        <form onSubmit={handleCreateStudent} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Student ID (Reg No)</label>
-                                <input required type="text" value={newStudent.student_id} onChange={e => setNewStudent({ ...newStudent, student_id: e.target.value })} className="w-full p-2.5 border border-violet-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-100 focus:border-violet-400 focus:outline-none shadow-sm" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
-                                <input required type="text" value={newStudent.name} onChange={e => setNewStudent({ ...newStudent, name: e.target.value })} className="w-full p-2.5 border border-violet-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-100 focus:border-violet-400 focus:outline-none shadow-sm" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                                <input type="email" value={newStudent.email} onChange={e => setNewStudent({ ...newStudent, email: e.target.value })} className="w-full p-2.5 border border-violet-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-100 focus:border-violet-400 focus:outline-none shadow-sm" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
-                                <select required value={newStudent.department_code} onChange={e => setNewStudent({ ...newStudent, department_code: e.target.value })} className="w-full p-2.5 border border-violet-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-100 focus:border-violet-400 focus:outline-none shadow-sm">
-                                    <option value="">Select Department</option>
-                                    {departments.map(d => <option key={d.department_code} value={d.department_code}>{d.department_code}</option>)}
-                                </select>
-                            </div>
-                            <div className="mt-6 flex justify-end space-x-3">
-                                <button type="button" onClick={() => setIsAddStudentModalOpen(false)} className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 py-2.5 rounded-xl text-sm font-medium transition-all">Cancel</button>
-                                <button type="submit" className="bg-violet-600 hover:bg-violet-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-violet-200 transition-all">Save Student</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
+            }
 
             {/* Add Registration Modal */}
-            {isAddRegModalOpen && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-                    <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 border-2 border-violet-200">
-                        <h3 className="text-lg font-bold text-gray-900 mb-4 flex items-center gap-2"><Plus className="w-4 h-4 text-violet-600" /> Register Student to Course</h3>
-                        <form onSubmit={handleCreateRegistration} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Student ID</label>
-                                <input required type="text" value={newReg.student_id} onChange={e => setNewReg({ ...newReg, student_id: e.target.value })} className="w-full p-2.5 border border-violet-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-100 focus:border-violet-400 focus:outline-none shadow-sm" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Course Code</label>
-                                <input required type="text" value={newReg.course_code} onChange={e => setNewReg({ ...newReg, course_code: e.target.value.toUpperCase() })} className="w-full p-2.5 border border-violet-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-100 focus:border-violet-400 focus:outline-none shadow-sm" placeholder="e.g. 22AG040" />
-                            </div>
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
-                                <input required type="number" min="1" max="8" value={newReg.semester} onChange={e => setNewReg({ ...newReg, semester: parseInt(e.target.value) })} className="w-full p-2.5 border border-violet-200 rounded-xl text-sm focus:ring-2 focus:ring-violet-100 focus:border-violet-400 focus:outline-none shadow-sm" />
-                            </div>
-                            <div className="mt-6 flex justify-end space-x-3">
-                                <button type="button" onClick={() => setIsAddRegModalOpen(false)} className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 py-2.5 rounded-xl text-sm font-medium transition-all">Cancel</button>
-                                <button type="submit" className="bg-violet-600 hover:bg-violet-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-violet-200 transition-all">Add Registration</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
+            }
         </div>
     );
 };

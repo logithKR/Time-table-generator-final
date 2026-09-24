@@ -1,4 +1,4 @@
-/**
+﻿/**
  * solver_engine.js
  * 
  * Complete port of solver_engine.py (1,911 lines) to Node.js using or-tools-wasm.
@@ -8,7 +8,7 @@
 const cp = require('or-tools-wasm/cp-sat');
 const { ConstraintInterpreter } = require('./constraint_interpreter');
 
-// ─── Helper Functions ────────────────────────────────────────
+// â”€â”€â”€ Helper Functions â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function get_conf(config, category, key, field = 'value', defaultVal = null) {
     try {
@@ -42,10 +42,10 @@ function get_lab_faculty(course_code, course_faculty) {
     return [...all_fac].sort((a, b) => (priority[a[2]] || 3) - (priority[b[2]] || 3));
 }
 
-// ─── Main Generation Function ───────────────────────────────
+// â”€â”€â”€ Main Generation Function â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-async function generate_schedule(db, department_code, semester, mentor_day = 'Saturday', mentor_period = 8, hard_mode = false, learning_mode_ids = null) {
-    console.log(`\n🚀 Starting Solver for Dept: ${department_code}, Sem: ${semester}...`);
+async function generate_schedule(db, department_code, semester, mentor_day = 'Saturday', mentor_period = 8, hard_mode = false, learning_mode_ids = null, locked_slots = []) {
+    console.log(`\nðŸš€ Starting Solver for Dept: ${department_code}, Sem: ${semester}...`);
 
     const learning_mode_str = learning_mode_ids ? learning_mode_ids.sort().join(',') : '1,2';
 
@@ -153,7 +153,7 @@ async function generate_schedule(db, department_code, semester, mentor_day = 'Sa
             try {
                 const enroll_data = course.enrollment_data ? JSON.parse(course.enrollment_data) : {};
                 const mode_total = learning_mode_ids.reduce((sum, m_id) => sum + (enroll_data[String(m_id)] || 0), 0);
-                if (mode_total === 0) { console.log(`  ⏩ Skipping ${course.course_code} - zero registrations for modes ${learning_mode_ids}`); continue; }
+                if (mode_total === 0) { console.log(`  â© Skipping ${course.course_code} - zero registrations for modes ${learning_mode_ids}`); continue; }
             } catch (e) { /* proceed */ }
         }
         const is_lang = course.course_category && course.course_category.toUpperCase().includes('LANGUAGE');
@@ -351,7 +351,7 @@ async function generate_schedule(db, department_code, semester, mentor_day = 'Sa
         const partners = group.slice(1);
         elective_partners[rep.course_code] = partners;
         if (partners.length > 0) {
-            console.log(`  🔗 ${cat}: ${rep.course_code} (solver) ↔ ${partners.map(p => p.course_code).join(', ')} (paired)`);
+            console.log(`  ðŸ”— ${cat}: ${rep.course_code} (solver) â†” ${partners.map(p => p.course_code).join(', ')} (paired)`);
         }
     }
 
@@ -441,9 +441,9 @@ async function generate_schedule(db, department_code, semester, mentor_day = 'Sa
     core_lab_courses = batch_rotation_needed ? core_lab_courses_to_merge : [];
 
     if (batch_rotation_needed) {
-        console.log(`  🔄 Lab Batch Rotation TRIGGERED: Merging ${core_lab_courses.length} labs into ${merged_batch_count} batches.`);
+        console.log(`  ðŸ”„ Lab Batch Rotation TRIGGERED: Merging ${core_lab_courses.length} labs into ${merged_batch_count} batches.`);
     } else {
-        console.log('  ✅ Sufficient resources. Lab Batch Rotation not needed.');
+        console.log('  âœ… Sufficient resources. Lab Batch Rotation not needed.');
     }
 
     // =========================================================
@@ -541,7 +541,7 @@ async function generate_schedule(db, department_code, semester, mentor_day = 'Sa
                         }
                     }
                 }
-                console.log(`  🔗 CP-SAT constraint: pinned ${c.course_code} to anchor dept ${anchor_entry.department_code}`);
+                console.log(`  ðŸ”— CP-SAT constraint: pinned ${c.course_code} to anchor dept ${anchor_entry.department_code}`);
             }
         }
     }
@@ -570,6 +570,41 @@ async function generate_schedule(db, department_code, semester, mentor_day = 'Sa
         const num_merged_labs = core_lab_courses.length;
         const target_blocks = Math.max(...core_lab_courses.map(c => course_lab_blocks[c.course_code])) * num_merged_labs;
         model.Add(cp.sum(Object.values(merged_lab_vars)).eq(target_blocks));
+    }
+
+    
+    // C4.1: Locked Slots blocking
+    if (locked_slots && locked_slots.length > 0) {
+        for (const ls of locked_slots) {
+            const ls_day = ls.day.trim().charAt(0).toUpperCase() + ls.day.trim().slice(1).toLowerCase();
+            const ls_period = ls.period;
+            
+            // Block all regular theory courses
+            for (const c of regular_courses) {
+                const key = `${c.course_code}_${ls_day}_${ls_period}`;
+                if (theory_vars[key]) model.Add(theory_vars[key].eq(0));
+            }
+            
+            // Block lab variables (since lab occupies bs and bs+1, block if bs matches or bs+1 matches)
+            for (const c of regular_courses) {
+                for (const bs of lab_block_starts) {
+                    if (ls_period === bs || ls_period === bs + 1) {
+                        const key = `${c.course_code}_${ls_day}_${bs}`;
+                        if (lab_vars[key]) model.Add(lab_vars[key].eq(0));
+                    }
+                }
+            }
+            
+            // Block merged lab variables
+            if (batch_rotation_needed) {
+                for (const bs of lab_block_starts) {
+                    if (ls_period === bs || ls_period === bs + 1) {
+                        const mkey = `${ls_day}_${bs}`;
+                        if (merged_lab_vars[mkey]) model.Add(merged_lab_vars[mkey].eq(0));
+                    }
+                }
+            }
+        }
     }
 
     // C4: Mentor hour blocking
@@ -834,11 +869,11 @@ async function generate_schedule(db, department_code, semester, mentor_day = 'Sa
 
     const OPTIMAL = 4; // cp.CpSolverStatus values
     const FEASIBLE = 2;
-    if (status !== OPTIMAL && status !== FEASIBLE) {
-        console.log(`❌ No solution found (status=${status}).`);
+    if (status !== OPTIMAL && status !== FEASIBLE && status !== "OPTIMAL" && status !== "FEASIBLE") {
+        console.log(`âŒ No solution found (status=${status}).`);
         return { success: false, errors: [make_error('SOLVER_FAILED', null, null, {}, { department: department_code, semester }, 'Try relaxing constraints or adding more resources.')], warnings: [], entries_saved: 0 };
     }
-    console.log(`✅ Solution Found (status=${status})`);
+    console.log(`âœ… Solution Found (status=${status})`);
 
     // =========================================================
     // 4b. GLOBAL VENUE TRACKING
@@ -879,7 +914,8 @@ async function generate_schedule(db, department_code, semester, mentor_day = 'Sa
     // =========================================================
     // 5. SAVE ENTRIES
     // =========================================================
-    db.prepare("DELETE FROM timetable_entries WHERE department_code = ? AND semester = ?").run(department_code, semester);
+    const modeStr = learning_mode_str || "1,2";
+    db.prepare("DELETE FROM timetable_entries WHERE department_code = ? AND semester = ? AND learning_mode_ids = ?").run(department_code, semester, modeStr);
 
     let count = 0;
     const filled_slots = new Set();
@@ -1050,7 +1086,7 @@ async function generate_schedule(db, department_code, semester, mentor_day = 'Sa
     }
 
     // =========================================================
-    // 5.5 COMMON COURSES — Honours sync
+    // 5.5 COMMON COURSES â€” Honours sync
     // =========================================================
     const common_placed_codes = new Set();
     for (const c of honours_courses) {
@@ -1168,6 +1204,22 @@ async function generate_schedule(db, department_code, semester, mentor_day = 'Sa
             for (const [day, period] of combined.slice(0, needed_val)) {
                 const sec = (min_idx < hon_day_groups.length && hon_day_groups[min_idx].some(s => s[0] === day && s[1] === period)) ? 2 : 1;
                 write_entry(day, period, mc, 'MINOR', sec);
+            }
+        }
+    }
+
+    
+    // LOCKED SLOTS entries
+    if (locked_slots && locked_slots.length > 0) {
+        for (const ls of locked_slots) {
+            const ls_day = ls.day.trim().charAt(0).toUpperCase() + ls.day.trim().slice(1).toLowerCase();
+            const ls_period = ls.period;
+            
+            if (slot_lookup[`${ls_day}_${ls_period}`]) {
+                const slot_obj = slot_lookup[`${ls_day}_${ls_period}`];
+                db.prepare(`INSERT INTO timetable_entries (department_code, semester, learning_mode_ids, course_code, course_name, session_type, slot_id, day_of_week, period_number, created_at) VALUES (?, ?, ?, 'LOCKED', 'Locked Slot', 'LOCKED', ?, ?, ?, CURRENT_TIMESTAMP)`).run(department_code, semester, learning_mode_str, slot_obj.slot_id, ls_day, ls_period);
+                filled_slots.add(`${ls_day}_${ls_period}`);
+                count++;
             }
         }
     }
@@ -1426,8 +1478,9 @@ async function generate_schedule(db, department_code, semester, mentor_day = 'Sa
         return { success: false, errors: generation_errors, warnings: generation_warnings, entries_saved: 0 };
     }
 
-    console.log(`💾 Saved ${count} timetable entries.`);
+    console.log(`ðŸ’¾ Saved ${count} timetable entries.`);
     return { success: true, errors: generation_errors, warnings: generation_warnings, entries_saved: count };
 }
 
 module.exports = { generate_schedule };
+

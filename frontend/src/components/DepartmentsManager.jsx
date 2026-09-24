@@ -106,33 +106,10 @@ const DepartmentsManager = () => {
                     <p className="text-sm text-slate-500 mt-1">Manage departments and semester-wise student capacities.</p>
                 </div>
 
-                <button
-                    onClick={() => setIsAdding(!isAdding)}
-                    className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 hover:shadow-indigo-300 transition-all active:scale-95"
-                >
-                    <Plus className="w-4 h-4" /> Add Department
-                </button>
+                
             </div>
 
-            {isAdding && (
-                <div className="bg-white rounded-2xl border-2 border-indigo-200 shadow-xl shadow-indigo-100/50 p-6">
-                    <h4 className="font-bold text-gray-800 mb-4 flex items-center gap-2">
-                        <Plus className="w-4 h-4 text-indigo-600" /> Add New Department
-                    </h4>
-                    <form onSubmit={handleAddSubmit} className="flex flex-col md:flex-row gap-3">
-                        <input
-                            name="department_code"
-                            placeholder="Department Code (e.g., CSE) *"
-                            required
-                            className="flex-1 p-2.5 border border-indigo-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 focus:outline-none shadow-sm uppercase placeholder:normal-case"
-                        />
-                        <div className="flex gap-2 shrink-0">
-                            <button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg shadow-indigo-200 transition-all">Save</button>
-                            <button type="button" onClick={() => setIsAdding(false)} className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-4 py-2.5 rounded-xl text-sm font-medium transition-all">Cancel</button>
-                        </div>
-                    </form>
-                </div>
-            )}
+            
 
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                 {departments.map(dept => {
@@ -185,9 +162,7 @@ const DepartmentsManager = () => {
                                                 className="w-24 p-2 text-sm border-2 border-indigo-300 rounded-lg focus:outline-none focus:ring-0 focus:border-indigo-500"
                                                 min="0"
                                             />
-                                            <button onClick={() => handleSaveCapacity(dept.department_code)} className="bg-emerald-500 text-white hover:bg-emerald-600 p-2 rounded-lg transition-colors shadow-sm" title="Save">
-                                                <Check className="w-4 h-4" />
-                                            </button>
+                                            
                                             <button onClick={cancelEdit} className="bg-slate-200 text-slate-600 hover:bg-slate-300 p-2 rounded-lg transition-colors" title="Cancel">
                                                 <X className="w-4 h-4" />
                                             </button>

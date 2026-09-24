@@ -57,7 +57,7 @@ router.post('/login', async (req, res) => {
         setAuthCookies(res, accessToken, refreshToken);
         res.json({ message: "Login successful", user: userData, access_token: accessToken });
     } catch (e) {
-        res.status(401).json({ detail: e.message || "Invalid Google token" });
+        console.error("Google Auth Error:", e); res.status(401).json({ detail: e.message || "Invalid Google token" });
     }
 });
 

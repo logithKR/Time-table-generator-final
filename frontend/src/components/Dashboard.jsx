@@ -64,6 +64,105 @@ const Dashboard = ({
                 </div>
             </div>
             
+            
+            {selectedDept && selectedSem && (
+                <div className="bg-white p-6 rounded-2xl shadow-lg shadow-violet-50/50 border border-violet-100 mt-6">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                            <span className="p-1.5 bg-violet-100 rounded-lg text-violet-600">
+                                <Monitor className="w-4 h-4" />
+                            </span>
+                            <span>Pre-Lock Timetable Slots</span>
+                        </h3>
+                        <p className="text-xs text-gray-500 font-medium bg-gray-50 px-2 py-1 rounded border border-gray-100">Click cells to lock. They will be labeled "LOCKED" and kept empty during generation.</p>
+                    </div>
+                    
+                    <div className="overflow-x-auto">
+                        <table className="w-full border-collapse text-sm">
+                            <thead>
+                                <tr>
+                                    <th className="border border-violet-100 bg-violet-50 p-2 text-violet-800 font-semibold w-24">Day \ Period</th>
+                                    {[1, 2, 3, 4, 5, 6, 7, 8].map(p => (
+                                        <th key={p} 
+                                            onClick={() => {
+                                                const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+                                                const isAllLocked = days.every(d => lockedSlots.some(s => s.day === d && s.period === p));
+                                                if (isAllLocked) {
+                                                    setLockedSlots(prev => prev.filter(s => s.period !== p));
+                                                } else {
+                                                    const newLocks = [...lockedSlots];
+                                                    days.forEach(d => {
+                                                        if (!newLocks.some(s => s.day === d && s.period === p)) {
+                                                            newLocks.push({ day: d, period: p });
+                                                        }
+                                                    });
+                                                    setLockedSlots(newLocks);
+                                                }
+                                            }}
+                                            className="border border-violet-100 bg-violet-50 p-2 text-violet-800 font-semibold cursor-pointer hover:bg-violet-100 transition-colors"
+                                            title="Click to lock/unlock entire period"
+                                        >
+                                            Period {p}
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map(day => (
+                                    <tr key={day}>
+                                        <td 
+                                            onClick={() => {
+                                                const periods = [1, 2, 3, 4, 5, 6, 7, 8];
+                                                const isAllLocked = periods.every(p => lockedSlots.some(s => s.day === day && s.period === p));
+                                                if (isAllLocked) {
+                                                    setLockedSlots(prev => prev.filter(s => s.day !== day));
+                                                } else {
+                                                    const newLocks = [...lockedSlots];
+                                                    periods.forEach(p => {
+                                                        if (!newLocks.some(s => s.day === day && s.period === p)) {
+                                                            newLocks.push({ day: day, period: p });
+                                                        }
+                                                    });
+                                                    setLockedSlots(newLocks);
+                                                }
+                                            }}
+                                            className="border border-violet-100 bg-violet-50/50 p-2 font-medium text-gray-700 cursor-pointer hover:bg-violet-100 transition-colors"
+                                            title="Click to lock/unlock entire day"
+                                        >
+                                            {day}
+                                        </td>
+                                        {[1, 2, 3, 4, 5, 6, 7, 8].map(p => {
+                                            const isLocked = lockedSlots.some(s => s.day === day && s.period === p);
+                                            return (
+                                                <td 
+                                                    key={p} 
+                                                    onClick={() => {
+                                                        if (isLocked) {
+                                                            setLockedSlots(prev => prev.filter(s => !(s.day === day && s.period === p)));
+                                                        } else {
+                                                            setLockedSlots(prev => [...prev, { day, period: p }]);
+                                                        }
+                                                    }}
+                                                    className={`border p-2 text-center cursor-pointer transition-all hover:opacity-80 ${isLocked ? 'bg-rose-100 border-rose-200 shadow-inner' : 'border-gray-100 bg-white hover:bg-gray-50'}`}
+                                                >
+                                                    {isLocked ? (
+                                                        <div className="flex flex-col items-center justify-center text-rose-600">
+                                                            <span className="font-bold text-xs uppercase tracking-wider">Locked</span>
+                                                        </div>
+                                                    ) : (
+                                                        <span className="text-gray-300 text-xs">-</span>
+                                                    )}
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            )}
+            
             {generationErrors && (
                 <div className="bg-white rounded-2xl shadow-lg shadow-rose-100/50 w-full overflow-hidden flex flex-col border-2 border-rose-200">
                     <div className="bg-rose-50 border-b border-rose-100 p-6 flex items-start gap-4">
