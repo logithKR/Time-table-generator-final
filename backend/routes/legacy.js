@@ -89,6 +89,36 @@ router.post('/course-faculty', (req, res) => { try { const { course_code, facult
  } catch (e) { handleDbError(e, res); } });
 router.delete('/course-faculty/:id', (req, res) => { try { db.prepare("DELETE FROM course_faculty_map WHERE id = ?").run(req.params.id); res.json({ status: "deleted" }); } catch (e) { handleDbError(e, res); } });
 
+// SUBJECT OVERRIDES
+router.get('/subject-overrides', (req, res) => {
+    try {
+        const { department_code, semester } = req.query;
+        if (!department_code || !semester) return res.status(400).json({ detail: "Missing params" });
+        const data = db.prepare("SELECT * FROM subject_overrides WHERE department_code = ? AND semester = ?").all(department_code, semester);
+        res.json({ data });
+    } catch (e) { handleDbError(e, res); }
+});
+
+router.post('/subject-overrides', (req, res) => {
+    try {
+        const { department_code, semester, overrides } = req.body;
+        if (!department_code || !semester || !Array.isArray(overrides)) return res.status(400).json({ detail: "Invalid data" });
+        
+        const deleteStmt = db.prepare("DELETE FROM subject_overrides WHERE department_code = ? AND semester = ?");
+        const insertStmt = db.prepare("INSERT INTO subject_overrides (department_code, semester, course_code, theory_per_week, lab_per_week, total_per_week) VALUES (?, ?, ?, ?, ?, ?)");
+        
+        const txn = db.transaction(() => {
+            deleteStmt.run(department_code, semester);
+            for (const o of overrides) {
+                insertStmt.run(department_code, semester, o.course_code, o.theory_per_week, o.lab_per_week, o.total_per_week);
+            }
+        });
+        
+        txn();
+        res.json({ status: "success" });
+    } catch (e) { handleDbError(e, res); }
+});
+
 // COURSES
 router.get('/courses', (req, res) => { try { const { department_code, semester } = req.query; let q = "SELECT * FROM course_master WHERE 1=1"; const p = []; if (department_code) { q += " AND department_code = ?"; p.push(department_code); } if (semester) { q += " AND semester = ?"; p.push(parseInt(semester)); } res.json(db.prepare(q).all(...p)); } catch (e) { handleDbError(e, res); } });
 router.post('/courses', (req, res) => { try { const { course_code, course_name, department_code, semester, credits, course_type, weekly_sessions, is_lab, is_open_elective, needs_venue, category, learning_mode } = req.body; db.prepare("INSERT INTO course_master (course_code, course_name, department_code, semester, credits, course_type, weekly_sessions, is_lab, is_open_elective, needs_venue, category, learning_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(course_code, course_name, department_code, semester, credits || 0, course_type || 'theory', weekly_sessions || 1, is_lab ? 1 : 0, is_open_elective ? 1 : 0, needs_venue !== false ? 1 : 0, category || null, learning_mode || null); res.json({ status: "success", course_code }); } catch (e) { handleDbError(e, res); } });

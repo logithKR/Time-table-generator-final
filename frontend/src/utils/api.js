@@ -359,6 +359,10 @@ export const setAdminToken = (token) => localStorage.setItem('adminToken', token
 export const clearAdminToken = () => localStorage.removeItem('adminToken');
 
 // --- Error Helper ---
+
+export const fetchSubjectOverrides = (dept, sem) => axios.get(`${API_URL}/subject-overrides?department_code=${dept}&semester=${sem}`);
+export const saveSubjectOverrides = (dept, sem, overrides) => axios.post(`${API_URL}/subject-overrides`, { department_code: dept, semester: sem, overrides });
+
 export const getErrorMessage = (err) => {
     // Extract the server message first
     let serverMsg = null;

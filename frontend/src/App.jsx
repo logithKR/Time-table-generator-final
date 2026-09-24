@@ -50,6 +50,7 @@ import LoginPage from './components/LoginPage';
 import AdminLogin from './components/AdminLogin';
 import AdminDashboard from './components/AdminDashboard';
 import LearningModeSelector from './components/LearningModeSelector';
+import DashboardOverrides from './components/DashboardOverrides';
 import { useAuth } from './contexts/AuthContext';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -1633,7 +1634,8 @@ function App() {
                                                     )}
                                                 </div>
                                             </>
-                                        )}
+                                        )} 
+ 
                                     </div>
                                 </div>
                             ))}
@@ -2093,6 +2095,7 @@ function App() {
                 </div>
                 <div className="p-4">{renderTimetable()}</div>
             </div>
+            <DashboardOverrides selectedDept={selectedDept} selectedSem={selectedSem} timetableEntries={timetableEntries} />
         </div>
     );
 

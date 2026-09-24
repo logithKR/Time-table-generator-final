@@ -94,6 +94,19 @@ async function generate_schedule(db, department_code, semester, mentor_day = 'Sa
     // 1. FETCH DATA
     // =========================================================
     let courses = db.prepare("SELECT * FROM course_master WHERE department_code = ? AND semester = ? AND is_open_elective = 0").all(department_code, semester);
+    
+    // --- TEMPORARY DASHBOARD OVERRIDE INJECTION ---
+    const overrides = db.prepare("SELECT * FROM subject_overrides WHERE department_code = ? AND semester = ?").all(department_code, semester);
+    for (const c of courses) {
+        const override = overrides.find(o => o.course_code === c.course_code);
+        if (override) {
+            c.lecture_hours = override.theory_per_week;
+            c.tutorial_hours = 0;
+            c.practical_hours = override.lab_per_week;
+            c.weekly_sessions = override.total_per_week;
+        }
+    }
+    // ----------------------------------------------
 
     const raw_slots = db.prepare("SELECT * FROM slot_master WHERE is_active = 1").all();
     let slots = [];
